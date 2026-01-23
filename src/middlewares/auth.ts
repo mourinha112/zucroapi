@@ -101,7 +101,7 @@ export async function authenticateAdmin(
     request.currentUser = {
       id: admin.id,
       email: admin.email,
-      name: admin.name,
+      name: admin.name || 'Admin',
       role: 'admin',
     };
   } catch (err) {

@@ -209,13 +209,13 @@ export async function paymentsRoutes(app: FastifyInstance) {
             pix_copy_paste: pixResult.pixCode,
             payment_link_id: link.id,
             asaas_payment_id: pixResult.txid,
-            metadata: {
+            metadata: JSON.parse(JSON.stringify({
               base_value: baseValue,
               platform_fee: feeCalc.platformFee,
               reserve_amount: feeCalc.reserveAmount,
               fee_payer: feePayer,
               seller_rates: rates,
-            },
+            })),
           },
         });
 
@@ -291,14 +291,14 @@ export async function paymentsRoutes(app: FastifyInstance) {
               efi_charge_id: chargeResult.chargeId!.toString(),
               payment_link_id: link.id,
               asaas_payment_id: chargeResult.chargeId!.toString(),
-              metadata: {
+              metadata: JSON.parse(JSON.stringify({
                 base_value: baseValue,
                 platform_fee: feeCalc.platformFee,
                 reserve_amount: feeCalc.reserveAmount,
                 installments,
                 fee_payer: feePayer,
                 seller_rates: rates,
-              },
+              })),
             },
           });
 

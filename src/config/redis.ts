@@ -1,37 +1,91 @@
+import Redis from 'ioredis';
 import { env } from './env';
 
 // ============================================
-// REDIS COMPLETAMENTE DESABILITADO EM DEV
-// Para usar Redis, rode: docker run -d -p 6379:6379 redis:alpine
+// REDIS - Conecta em produção, mock em dev
 // ============================================
 
-// Flag para controlar se Redis está disponível
+let redisInstance: Redis | null = null;
 let redisEnabled = false;
 
-// Só tenta conectar se REDIS_URL não for localhost (ou se Redis estiver rodando)
-// Por padrão, desabilitamos para desenvolvimento sem Redis
-console.log('[Redis] ⚠️ Desabilitado - cache e filas não funcionarão');
-console.log('[Redis] Para habilitar: docker run -d -p 6379:6379 redis:alpine');
+// Tenta conectar ao Redis
+if (env.NODE_ENV === 'production' || env.REDIS_URL !== 'redis://localhost:6379') {
+  try {
+    redisInstance = new Redis(env.REDIS_URL, {
+      maxRetriesPerRequest: 3,
+      retryStrategy: (times) => {
+        if (times > 3) {
+          console.log('[Redis] ❌ Falha ao conectar após 3 tentativas');
+          return null;
+        }
+        return Math.min(times * 200, 2000);
+      },
+      lazyConnect: true,
+    });
 
-// Mock do Redis para não quebrar imports
-export const redis = null;
+    redisInstance.on('connect', () => {
+      console.log('[Redis] ✅ Conectado');
+      redisEnabled = true;
+    });
 
-// Funções de cache (sempre retornam fallback sem Redis)
+    redisInstance.on('error', (err) => {
+      console.log('[Redis] ⚠️ Erro:', err.message);
+      redisEnabled = false;
+    });
+
+    // Tenta conectar
+    redisInstance.connect().catch(() => {
+      console.log('[Redis] ⚠️ Não foi possível conectar - continuando sem cache');
+      redisInstance = null;
+    });
+  } catch (error) {
+    console.log('[Redis] ⚠️ Erro ao inicializar - continuando sem cache');
+    redisInstance = null;
+  }
+} else {
+  console.log('[Redis] ⚠️ Desabilitado em dev - cache não funcionará');
+}
+
+// Exporta a instância (pode ser null)
+export const redis = redisInstance;
+
+// Funções de cache (com fallback se Redis não disponível)
 export const cache = {
-  async get<T>(_key: string): Promise<T | null> {
-    return null;
+  async get<T>(key: string): Promise<T | null> {
+    if (!redis || !redisEnabled) return null;
+    try {
+      const data = await redis.get(key);
+      return data ? JSON.parse(data) : null;
+    } catch {
+      return null;
+    }
   },
 
-  async set(_key: string, _value: any, _ttlSeconds: number = 3600): Promise<void> {
-    // No-op
+  async set(key: string, value: any, ttlSeconds: number = 3600): Promise<void> {
+    if (!redis || !redisEnabled) return;
+    try {
+      await redis.setex(key, ttlSeconds, JSON.stringify(value));
+    } catch {
+      // Ignora erro
+    }
   },
 
-  async del(_key: string): Promise<void> {
-    // No-op
+  async del(key: string): Promise<void> {
+    if (!redis || !redisEnabled) return;
+    try {
+      await redis.del(key);
+    } catch {
+      // Ignora erro
+    }
   },
 
-  async exists(_key: string): Promise<boolean> {
-    return false;
+  async exists(key: string): Promise<boolean> {
+    if (!redis || !redisEnabled) return false;
+    try {
+      return (await redis.exists(key)) === 1;
+    } catch {
+      return false;
+    }
   },
 };
 

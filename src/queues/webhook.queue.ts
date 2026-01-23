@@ -1,4 +1,5 @@
-import { redis } from '../config/redis';
+import { Queue, Worker, Job } from 'bullmq';
+import { redis, isRedisConnected } from '../config/redis';
 import { prisma } from '../config/database';
 import {
   getEffectiveRates,
@@ -8,13 +9,36 @@ import {
 } from '../providers/efibank/fee.calculator';
 
 // ============================================
-// FILAS DESABILITADAS (sem Redis)
+// FILAS COM REDIS (ou mock sem Redis)
 // ============================================
-// BullMQ requer Redis. Em desenvolvimento sem Redis,
-// os webhooks são processados de forma síncrona.
 
-export const webhookQueue = null;
-console.log('[Queue] ⚠️ Filas desabilitadas (sem Redis)');
+// Mock queue para quando Redis não está disponível
+const mockQueue = {
+  async add(name: string, data: any, opts?: any): Promise<any> {
+    console.log(`[Queue Mock] Job ${name} adicionado:`, data);
+    // Processar sincronamente em dev
+    if (name === 'pix_payment') {
+      await processPixPayment(data as PixWebhookJob);
+    } else if (name === 'release_reserve') {
+      await processReleaseReserve(data as ReleaseReserveJob);
+    }
+    return { id: 'mock-' + Date.now() };
+  }
+};
+
+// Criar fila real se Redis disponível, senão usar mock
+let realQueue: Queue | null = null;
+if (redis) {
+  try {
+    realQueue = new Queue('webhooks', { connection: redis });
+    console.log('[Queue] ✅ Fila de webhooks inicializada');
+  } catch (e) {
+    console.log('[Queue] ⚠️ Erro ao criar fila, usando mock');
+  }
+}
+
+export const webhookQueue = realQueue || mockQueue;
+console.log('[Queue]', realQueue ? '✅ Usando BullMQ' : '⚠️ Usando mock (sem Redis)');
 
 // Tipos de jobs
 interface PixWebhookJob {
@@ -96,13 +120,13 @@ async function processPixPayment(data: PixWebhookJob) {
       status: 'RECEIVED',
       payment_date: new Date(),
       net_value: feeCalc.netValue,
-      efi_end_to_end_id: endToEndId,
-      metadata: {
+      metadata: JSON.parse(JSON.stringify({
         ...(payment.metadata as any),
         platform_fee: feeCalc.platformFee,
         reserve_amount: feeCalc.reserveAmount,
         pix_pagador: pagador,
-      },
+        efi_end_to_end_id: endToEndId,
+      })),
     },
   });
 
@@ -224,7 +248,7 @@ async function processReleaseReserve(data: ReleaseReserveJob) {
 // Enviar webhook para usuário
 async function sendUserWebhook(userId: string, event: string, data: any) {
   const webhooks = await prisma.webhook.findMany({
-    where: { user_id: userId, active: true },
+    where: { user_id: userId, status: 'active' },
   });
 
   for (const webhook of webhooks) {
@@ -247,9 +271,9 @@ async function sendUserWebhook(userId: string, event: string, data: any) {
       await prisma.webhookLog.create({
         data: {
           webhook_id: webhook.id,
-          event,
+          event_type: event,
           payload: data,
-          response_status: response.status,
+          response_code: response.status,
           response_body: await response.text().catch(() => ''),
           success: response.ok,
         },
@@ -258,9 +282,9 @@ async function sendUserWebhook(userId: string, event: string, data: any) {
       await prisma.webhookLog.create({
         data: {
           webhook_id: webhook.id,
-          event,
+          event_type: event,
           payload: data,
-          response_status: 0,
+          response_code: 0,
           response_body: error.message,
           success: false,
         },

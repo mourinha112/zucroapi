@@ -101,7 +101,7 @@ export const getPixAccessToken = async (): Promise<string> => {
     pixTokenCache.token = response.data.access_token;
     pixTokenCache.expiry = Date.now() + (response.data.expires_in * 1000) - 60000;
     console.log('[EFI PIX] Token obtido com sucesso');
-    return pixTokenCache.token;
+    return pixTokenCache.token!;
   }
 
   console.error('[EFI PIX] Auth failed:', response);
@@ -136,7 +136,7 @@ export const getCobrancaAccessToken = async (): Promise<string> => {
     cobrancaTokenCache.token = response.data.access_token;
     cobrancaTokenCache.expiry = Date.now() + (response.data.expires_in * 1000) - 60000;
     console.log('[EFI Cobranca] Token obtido com sucesso');
-    return cobrancaTokenCache.token;
+    return cobrancaTokenCache.token!;
   }
 
   console.error('[EFI Cobranca] Auth failed:', response);

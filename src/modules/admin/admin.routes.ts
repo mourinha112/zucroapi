@@ -27,9 +27,9 @@ export async function adminRoutes(app: FastifyInstance) {
         totalPayments = await prisma.payment.count({ where: { status: 'RECEIVED' } });
         const salesAgg = await prisma.payment.aggregate({
           where: { status: 'RECEIVED' },
-          _sum: { amount: true }
+          _sum: { value: true }
         });
-        totalSales = Number(salesAgg._sum.amount || 0);
+        totalSales = Number(salesAgg._sum?.value || 0);
       } catch (e) {
         console.log('Erro ao buscar payments:', e);
       }

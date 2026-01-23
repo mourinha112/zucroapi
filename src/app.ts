@@ -108,7 +108,7 @@ async function bootstrap() {
     await prisma.$connect();
     app.log.info('✅ Database connected');
   } catch (error) {
-    app.log.error('❌ Database connection failed:', error);
+    app.log.error('❌ Database connection failed:', String(error));
     process.exit(1);
   }
 
