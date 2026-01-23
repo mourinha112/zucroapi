@@ -6,10 +6,10 @@ import { createCardCharge, payWithCardToken } from '../../providers/efibank/efi.
 import {
   getEffectiveRates,
   calculatePixFeeSellerPays,
-  calculatePixFeeBuyerPays,
   calculateCardFeeSellerPays,
   calculateCardFeeBuyerPays,
   calculateReleaseDate,
+  calculateTotalForBuyer,
 } from '../../providers/efibank/fee.calculator';
 import { 
   authenticate, 
@@ -162,24 +162,36 @@ export async function paymentsRoutes(app: FastifyInstance) {
         where: { user_id: link.user_id },
       });
 
-      const rates = getEffectiveRates(customRates ? {
+      const rates = await getEffectiveRates(customRates ? {
         pix_rate: customRates.pix_rate ? Number(customRates.pix_rate) : undefined,
         card_rate: customRates.card_rate ? Number(customRates.card_rate) : undefined,
         boleto_rate: customRates.boleto_rate ? Number(customRates.boleto_rate) : undefined,
       } : null);
 
-      // Determinar quem paga as taxas
+      // Determinar quem paga os juros (somente juros de parcelamento, não taxa da plataforma)
       const feePayer = (link.product as any)?.fee_payer || 'seller';
       const baseValue = Number(link.amount);
-      const value = (feePayer === 'buyer' && body.totalValue) ? body.totalValue : baseValue;
       const description = link.product?.name || link.name || 'Pagamento ZucroPay';
+      const installments = body.cardInstallments || 1;
+
+      // Calcular valor que o cliente paga
+      // PIX: sempre valor base (não tem juros)
+      // Cartão: valor base + juros de parcelamento (se comprador paga)
+      const grossValue = calculateTotalForBuyer(
+        baseValue,
+        body.billingType as 'PIX' | 'CREDIT_CARD' | 'BOLETO',
+        installments,
+        feePayer,
+        rates
+      );
 
       let payment: any;
 
       // ========== PIX ==========
       if (body.billingType === 'PIX') {
+        // PIX sempre cobra o valor base (sem juros de parcelamento)
         const pixResult = await createPixCharge({
-          value,
+          value: baseValue,
           description,
           customerCpf: body.customerCpfCnpj,
           customerName: body.customerName,
@@ -189,17 +201,15 @@ export async function paymentsRoutes(app: FastifyInstance) {
           return reply.send({ success: false, error: pixResult.error, debug: pixResult.debug });
         }
 
-        // Calcular taxas
-        const feeCalc = feePayer === 'buyer'
-          ? calculatePixFeeBuyerPays(baseValue, value, rates)
-          : calculatePixFeeSellerPays(value, rates);
+        // Calcular taxas (PIX não tem parcelamento, taxa sempre do vendedor)
+        const feeCalc = calculatePixFeeSellerPays(baseValue, rates);
 
         // Salvar pagamento
         const savedPayment = await prisma.payment.create({
           data: {
             user_id: link.user_id,
             billing_type: 'PIX',
-            value,
+            value: baseValue,
             net_value: feeCalc.netValue,
             status: 'PENDING',
             description,
@@ -236,8 +246,8 @@ export async function paymentsRoutes(app: FastifyInstance) {
 
       // ========== CARTÃO ==========
       else if (body.billingType === 'CREDIT_CARD') {
-        // Criar cobrança
-        const chargeResult = await createCardCharge({ value, description });
+        // Criar cobrança com valor que inclui juros se comprador paga
+        const chargeResult = await createCardCharge({ value: grossValue, description });
 
         if (!chargeResult.success) {
           return reply.send({ success: false, error: chargeResult.error, debug: chargeResult.debug });
@@ -245,10 +255,8 @@ export async function paymentsRoutes(app: FastifyInstance) {
 
         // Pagar com token
         if (body.cardPaymentToken) {
-          const installments = body.cardInstallments || 1;
-          
           const payResult = await payWithCardToken(chargeResult.chargeId!, {
-            value,
+            value: grossValue,
             description,
             installments,
             paymentToken: body.cardPaymentToken,
@@ -271,9 +279,10 @@ export async function paymentsRoutes(app: FastifyInstance) {
           }
 
           // Calcular taxas
+          // Se comprador paga, ele paga apenas juros de parcelamento, taxa da plataforma é do vendedor
           const feeCalc = feePayer === 'buyer'
-            ? calculateCardFeeBuyerPays(baseValue, value, installments, rates)
-            : calculateCardFeeSellerPays(value, installments, rates);
+            ? calculateCardFeeBuyerPays(baseValue, installments, rates)
+            : calculateCardFeeSellerPays(baseValue, installments, rates);
 
           const status = payResult.status === 'RECEIVED' ? 'RECEIVED' : 'PENDING';
 
@@ -282,7 +291,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
             data: {
               user_id: link.user_id,
               billing_type: 'CREDIT_CARD',
-              value,
+              value: grossValue, // Valor que o cliente pagou (inclui juros se buyer paga)
               net_value: feeCalc.netValue,
               status,
               description,
@@ -293,7 +302,9 @@ export async function paymentsRoutes(app: FastifyInstance) {
               asaas_payment_id: chargeResult.chargeId!.toString(),
               metadata: JSON.parse(JSON.stringify({
                 base_value: baseValue,
+                gross_value: grossValue,
                 platform_fee: feeCalc.platformFee,
+                installment_fee: feeCalc.installmentFee,
                 reserve_amount: feeCalc.reserveAmount,
                 installments,
                 fee_payer: feePayer,
@@ -331,7 +342,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
               data: {
                 user_id: link.user_id,
                 type: 'payment_received',
-                amount: feePayer === 'buyer' ? baseValue : value,
+                amount: grossValue, // Valor bruto recebido
                 status: 'completed',
                 description: `Venda com cartão ${installments}x - ${description}`,
                 efi_charge_id: chargeResult.chargeId!.toString(),
@@ -345,7 +356,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
             where: { id: link.id },
             data: {
               payments_count: { increment: 1 },
-              total_received: status === 'RECEIVED' ? { increment: value } : undefined,
+              total_received: status === 'RECEIVED' ? { increment: grossValue } : undefined,
             },
           });
 
@@ -398,21 +409,55 @@ export async function paymentsRoutes(app: FastifyInstance) {
       card_rate: customRates.card_rate ? Number(customRates.card_rate) : undefined,
     } : null);
 
+    const baseValue = Number(link.amount);
+    const feePayer = (link.product as any)?.fee_payer || 'seller';
+
+    // Calcular valores para cada opção de pagamento
+    const installmentOptions = [];
+    for (let i = 1; i <= 12; i++) {
+      const total = calculateTotalForBuyer(baseValue, 'CREDIT_CARD', i, feePayer, rates);
+      const installmentValue = total / i;
+      const fee = total - baseValue;
+      installmentOptions.push({
+        installments: i,
+        total: Math.round(total * 100) / 100,
+        installmentValue: Math.round(installmentValue * 100) / 100,
+        fee: Math.round(fee * 100) / 100,
+        label: i === 1 
+          ? `À vista - R$ ${baseValue.toFixed(2)}` 
+          : `${i}x de R$ ${installmentValue.toFixed(2)} (Total: R$ ${total.toFixed(2)})`,
+      });
+    }
+
     return reply.send({
       success: true,
       link: {
         id: link.id,
         name: link.name,
         description: link.description,
-        amount: Number(link.amount),
+        amount: baseValue,
         product: link.product,
-        feePayer: (link.product as any)?.fee_payer || 'seller',
+        feePayer,
       },
       rates: {
         pix: rates.pix_rate,
         card: rates.card_rate,
         fixed: rates.fixed_fee,
         installment: rates.installment_fee,
+      },
+      // Valores calculados baseados em quem paga os juros
+      paymentOptions: {
+        pix: {
+          total: baseValue, // PIX não tem juros
+          feePayer,
+        },
+        card: {
+          installments: installmentOptions,
+          feePayer,
+          note: feePayer === 'buyer' 
+            ? 'Juros de parcelamento inclusos no valor das parcelas' 
+            : 'Valor à vista em todas as parcelas (vendedor absorve juros)',
+        },
       },
     });
   });

@@ -465,4 +465,173 @@ export async function adminRoutes(app: FastifyInstance) {
       });
     }
   });
+
+  // ============================================
+  // TAXAS GLOBAIS DA PLATAFORMA
+  // ============================================
+
+  // Obter taxas globais
+  app.get('/platform-rates', {
+    preHandler: [standardRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    try {
+      let settings = await prisma.platformSettings.findUnique({
+        where: { id: 'default' },
+      });
+
+      // Criar configuração padrão se não existir
+      if (!settings) {
+        settings = await prisma.platformSettings.create({
+          data: {
+            id: 'default',
+            pix_rate: 5.99,
+            card_rate: 5.99,
+            boleto_rate: 5.99,
+            fixed_fee: 2.50,
+            installment_fee: 2.49,
+            reserve_percent: 0.05,
+            reserve_days: 30,
+            withdrawal_fee: 2.00,
+            max_installments: 12,
+            min_pix_value: 1.00,
+            min_card_value: 5.00,
+          },
+        });
+      }
+
+      return reply.send({
+        success: true,
+        rates: {
+          pix_rate: Number(settings.pix_rate),
+          card_rate: Number(settings.card_rate),
+          boleto_rate: Number(settings.boleto_rate),
+          fixed_fee: Number(settings.fixed_fee),
+          installment_fee: Number(settings.installment_fee),
+          reserve_percent: Number(settings.reserve_percent),
+          reserve_days: settings.reserve_days,
+          withdrawal_fee: Number(settings.withdrawal_fee),
+          max_installments: settings.max_installments,
+          min_pix_value: Number(settings.min_pix_value),
+          min_card_value: Number(settings.min_card_value),
+        },
+        updated_at: settings.updated_at,
+      });
+    } catch (error: any) {
+      console.error('Erro ao buscar taxas:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error.message || 'Erro ao buscar taxas',
+      });
+    }
+  });
+
+  // Atualizar taxas globais
+  app.put('/platform-rates', {
+    preHandler: [sensitiveActionRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    const body = request.body as {
+      pix_rate?: number;
+      card_rate?: number;
+      boleto_rate?: number;
+      fixed_fee?: number;
+      installment_fee?: number;
+      reserve_percent?: number;
+      reserve_days?: number;
+      withdrawal_fee?: number;
+      max_installments?: number;
+      min_pix_value?: number;
+      min_card_value?: number;
+    };
+
+    try {
+      // Validações
+      if (body.pix_rate !== undefined && (body.pix_rate < 0 || body.pix_rate > 50)) {
+        return reply.status(400).send({ success: false, error: 'Taxa PIX deve ser entre 0% e 50%' });
+      }
+      if (body.card_rate !== undefined && (body.card_rate < 0 || body.card_rate > 50)) {
+        return reply.status(400).send({ success: false, error: 'Taxa Cartão deve ser entre 0% e 50%' });
+      }
+      if (body.boleto_rate !== undefined && (body.boleto_rate < 0 || body.boleto_rate > 50)) {
+        return reply.status(400).send({ success: false, error: 'Taxa Boleto deve ser entre 0% e 50%' });
+      }
+      if (body.installment_fee !== undefined && (body.installment_fee < 0 || body.installment_fee > 10)) {
+        return reply.status(400).send({ success: false, error: 'Juros de parcelamento deve ser entre 0% e 10%' });
+      }
+      if (body.reserve_percent !== undefined && (body.reserve_percent < 0 || body.reserve_percent > 0.5)) {
+        return reply.status(400).send({ success: false, error: 'Reserva deve ser entre 0% e 50%' });
+      }
+      if (body.reserve_days !== undefined && (body.reserve_days < 1 || body.reserve_days > 180)) {
+        return reply.status(400).send({ success: false, error: 'Dias de reserva deve ser entre 1 e 180' });
+      }
+
+      // Atualizar ou criar
+      const settings = await prisma.platformSettings.upsert({
+        where: { id: 'default' },
+        update: {
+          ...(body.pix_rate !== undefined && { pix_rate: body.pix_rate }),
+          ...(body.card_rate !== undefined && { card_rate: body.card_rate }),
+          ...(body.boleto_rate !== undefined && { boleto_rate: body.boleto_rate }),
+          ...(body.fixed_fee !== undefined && { fixed_fee: body.fixed_fee }),
+          ...(body.installment_fee !== undefined && { installment_fee: body.installment_fee }),
+          ...(body.reserve_percent !== undefined && { reserve_percent: body.reserve_percent }),
+          ...(body.reserve_days !== undefined && { reserve_days: body.reserve_days }),
+          ...(body.withdrawal_fee !== undefined && { withdrawal_fee: body.withdrawal_fee }),
+          ...(body.max_installments !== undefined && { max_installments: body.max_installments }),
+          ...(body.min_pix_value !== undefined && { min_pix_value: body.min_pix_value }),
+          ...(body.min_card_value !== undefined && { min_card_value: body.min_card_value }),
+          updated_at: new Date(),
+        },
+        create: {
+          id: 'default',
+          pix_rate: body.pix_rate ?? 5.99,
+          card_rate: body.card_rate ?? 5.99,
+          boleto_rate: body.boleto_rate ?? 5.99,
+          fixed_fee: body.fixed_fee ?? 2.50,
+          installment_fee: body.installment_fee ?? 2.49,
+          reserve_percent: body.reserve_percent ?? 0.05,
+          reserve_days: body.reserve_days ?? 30,
+          withdrawal_fee: body.withdrawal_fee ?? 2.00,
+          max_installments: body.max_installments ?? 12,
+          min_pix_value: body.min_pix_value ?? 1.00,
+          min_card_value: body.min_card_value ?? 5.00,
+        },
+      });
+
+      // Invalidar cache
+      const { invalidatePlatformRatesCache } = await import('../../providers/efibank/fee.calculator');
+      invalidatePlatformRatesCache();
+
+      // Logar alteração
+      await prisma.adminLog.create({
+        data: {
+          action: 'platform_rates_updated',
+          details: body as any,
+        },
+      });
+
+      return reply.send({
+        success: true,
+        message: 'Taxas atualizadas com sucesso',
+        rates: {
+          pix_rate: Number(settings.pix_rate),
+          card_rate: Number(settings.card_rate),
+          boleto_rate: Number(settings.boleto_rate),
+          fixed_fee: Number(settings.fixed_fee),
+          installment_fee: Number(settings.installment_fee),
+          reserve_percent: Number(settings.reserve_percent),
+          reserve_days: settings.reserve_days,
+          withdrawal_fee: Number(settings.withdrawal_fee),
+          max_installments: settings.max_installments,
+          min_pix_value: Number(settings.min_pix_value),
+          min_card_value: Number(settings.min_card_value),
+        },
+      });
+    } catch (error: any) {
+      console.error('Erro ao atualizar taxas:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error.message || 'Erro ao atualizar taxas',
+      });
+    }
+  });
 }

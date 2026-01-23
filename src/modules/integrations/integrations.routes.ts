@@ -70,7 +70,7 @@ export async function integrationsRoutes(app: FastifyInstance) {
         where: { user_id: user.id },
       });
 
-      const rates = getEffectiveRates(customRates ? {
+      const rates = await getEffectiveRates(customRates ? {
         pix_rate: customRates.pix_rate ? Number(customRates.pix_rate) : undefined,
         card_rate: customRates.card_rate ? Number(customRates.card_rate) : undefined,
       } : null);

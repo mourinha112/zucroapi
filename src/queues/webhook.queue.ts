@@ -4,7 +4,6 @@ import { env } from '../config/env';
 import {
   getEffectiveRates,
   calculatePixFeeSellerPays,
-  calculatePixFeeBuyerPays,
   calculateReleaseDate,
 } from '../providers/efibank/fee.calculator';
 import { notifySale } from '../modules/push/push.service';
@@ -112,7 +111,7 @@ async function processPixPayment(data: PixWebhookJob) {
     where: { user_id: payment.user_id },
   });
 
-  const rates = getEffectiveRates(customRates ? {
+  const rates = await getEffectiveRates(customRates ? {
     pix_rate: customRates.pix_rate ? Number(customRates.pix_rate) : undefined,
   } : null);
 
@@ -121,9 +120,9 @@ async function processPixPayment(data: PixWebhookJob) {
   const grossValue = Number(payment.value);
   const feePayer = (payment.metadata as any)?.fee_payer || 'seller';
 
-  const feeCalc = feePayer === 'buyer'
-    ? calculatePixFeeBuyerPays(baseValue, grossValue, rates)
-    : calculatePixFeeSellerPays(grossValue, rates);
+  // PIX não tem parcelamento, então feePayer não afeta o cálculo
+  // Taxa da plataforma SEMPRE é do vendedor
+  const feeCalc = calculatePixFeeSellerPays(grossValue, rates);
 
   // Atualizar pagamento
   await prisma.payment.update({
