@@ -1,0 +1,47 @@
+---
+title: 'Revogar API Key'
+api: 'DELETE https://api.appzucropay.com/api/keys/{id}'
+description: 'Revoga uma chave de API existente'
+---
+
+## Autenticação
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token JWT
+</ParamField>
+
+## Path Parameters
+
+<ParamField path="id" type="string" required>
+  ID da chave a ser revogada
+</ParamField>
+
+## Response
+
+<ResponseField name="success" type="boolean">
+  Indica se a operação foi bem sucedida
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Mensagem de confirmação
+</ResponseField>
+
+<Warning>
+  Uma vez revogada, a chave não pode ser recuperada. Todas as integrações usando essa chave deixarão de funcionar imediatamente.
+</Warning>
+
+<RequestExample>
+```bash cURL
+curl -X DELETE https://api.appzucropay.com/api/keys/key_abc123 \
+  -H "Authorization: Bearer seu_token"
+```
+</RequestExample>
+
+<ResponseExample>
+```json Response
+{
+  "success": true,
+  "message": "Chave revogada com sucesso"
+}
+```
+</ResponseExample>

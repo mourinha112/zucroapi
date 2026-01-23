@@ -1,0 +1,82 @@
+---
+title: 'Criar API Key'
+api: 'POST https://api.appzucropay.com/api/keys'
+description: 'Gera uma nova chave de API para integrações'
+---
+
+## Autenticação
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token JWT
+</ParamField>
+
+## Body
+
+<ParamField body="name" type="string" required>
+  Nome identificador da chave (ex: "Integração Loja Virtual")
+</ParamField>
+
+<ParamField body="permissions" type="array">
+  Lista de permissões da chave
+  - `payments:read` - Ler pagamentos
+  - `payments:write` - Criar pagamentos
+  - `webhooks:manage` - Gerenciar webhooks
+  - `balance:read` - Ver saldo
+</ParamField>
+
+## Response
+
+<ResponseField name="success" type="boolean">
+  Indica se a operação foi bem sucedida
+</ResponseField>
+
+<ResponseField name="key" type="object">
+  <Expandable title="key">
+    <ResponseField name="id" type="string">
+      ID único da chave
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Nome da chave
+    </ResponseField>
+    <ResponseField name="key" type="string">
+      A chave de API (mostrada apenas uma vez)
+    </ResponseField>
+    <ResponseField name="permissions" type="array">
+      Permissões da chave
+    </ResponseField>
+    <ResponseField name="created_at" type="string">
+      Data de criação
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<Warning>
+  A chave completa é mostrada apenas uma vez. Guarde-a em um local seguro.
+</Warning>
+
+<RequestExample>
+```bash cURL
+curl -X POST https://api.appzucropay.com/api/keys \
+  -H "Authorization: Bearer seu_token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Integração Loja Virtual",
+    "permissions": ["payments:read", "payments:write"]
+  }'
+```
+</RequestExample>
+
+<ResponseExample>
+```json Response
+{
+  "success": true,
+  "key": {
+    "id": "key_abc123",
+    "name": "Integração Loja Virtual",
+    "key": "zp_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "permissions": ["payments:read", "payments:write"],
+    "created_at": "2024-01-15T10:30:00Z"
+  }
+}
+```
+</ResponseExample>

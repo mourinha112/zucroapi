@@ -1,0 +1,83 @@
+---
+title: 'Criar Webhook'
+api: 'POST https://api.appzucropay.com/api/webhooks'
+description: 'Registra um novo endpoint de webhook para receber notificações'
+---
+
+## Autenticação
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token JWT
+</ParamField>
+
+## Body
+
+<ParamField body="url" type="string" required>
+  URL do endpoint que receberá as notificações
+</ParamField>
+
+<ParamField body="events" type="array" required>
+  Lista de eventos para receber notificações
+  - `payment.received` - Pagamento recebido
+  - `payment.failed` - Pagamento falhou
+  - `payment.expired` - Pagamento expirado
+  - `withdrawal.approved` - Saque aprovado
+  - `withdrawal.rejected` - Saque rejeitado
+</ParamField>
+
+<ParamField body="secret" type="string">
+  Chave secreta para validar assinaturas (gerada automaticamente se não fornecida)
+</ParamField>
+
+## Response
+
+<ResponseField name="success" type="boolean">
+  Indica se a operação foi bem sucedida
+</ResponseField>
+
+<ResponseField name="webhook" type="object">
+  <Expandable title="webhook">
+    <ResponseField name="id" type="string">
+      ID único do webhook
+    </ResponseField>
+    <ResponseField name="url" type="string">
+      URL do endpoint
+    </ResponseField>
+    <ResponseField name="events" type="array">
+      Eventos registrados
+    </ResponseField>
+    <ResponseField name="secret" type="string">
+      Chave secreta para validação
+    </ResponseField>
+    <ResponseField name="active" type="boolean">
+      Status do webhook
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<RequestExample>
+```bash cURL
+curl -X POST https://api.appzucropay.com/api/webhooks \
+  -H "Authorization: Bearer seu_token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://seusite.com/webhooks/zucropay",
+    "events": ["payment.received", "payment.failed"]
+  }'
+```
+</RequestExample>
+
+<ResponseExample>
+```json Response
+{
+  "success": true,
+  "webhook": {
+    "id": "wh_abc123",
+    "url": "https://seusite.com/webhooks/zucropay",
+    "events": ["payment.received", "payment.failed"],
+    "secret": "whsec_xyz789",
+    "active": true
+  }
+}
+```
+</ResponseExample>

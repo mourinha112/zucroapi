@@ -1,0 +1,62 @@
+---
+title: 'Listar Webhooks'
+api: 'GET https://api.appzucropay.com/api/webhooks'
+description: 'Lista todos os webhooks registrados'
+---
+
+## Autenticação
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token JWT
+</ParamField>
+
+## Response
+
+<ResponseField name="success" type="boolean">
+  Indica se a operação foi bem sucedida
+</ResponseField>
+
+<ResponseField name="webhooks" type="array">
+  Lista de webhooks registrados
+  <Expandable title="webhook">
+    <ResponseField name="id" type="string">
+      ID único do webhook
+    </ResponseField>
+    <ResponseField name="url" type="string">
+      URL do endpoint
+    </ResponseField>
+    <ResponseField name="events" type="array">
+      Eventos registrados
+    </ResponseField>
+    <ResponseField name="active" type="boolean">
+      Status do webhook
+    </ResponseField>
+    <ResponseField name="created_at" type="string">
+      Data de criação
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<RequestExample>
+```bash cURL
+curl https://api.appzucropay.com/api/webhooks \
+  -H "Authorization: Bearer seu_token"
+```
+</RequestExample>
+
+<ResponseExample>
+```json Response
+{
+  "success": true,
+  "webhooks": [
+    {
+      "id": "wh_abc123",
+      "url": "https://seusite.com/webhooks/zucropay",
+      "events": ["payment.received", "payment.failed"],
+      "active": true,
+      "created_at": "2024-01-15T10:30:00Z"
+    }
+  ]
+}
+```
+</ResponseExample>

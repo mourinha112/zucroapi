@@ -1,0 +1,140 @@
+---
+title: 'JavaScript / Node.js'
+description: 'Integração com JavaScript e Node.js'
+---
+
+## Instalação
+
+Você pode usar fetch nativo ou axios para integrar com a API ZucroPay.
+
+```bash npm
+npm install axios
+```
+
+## Configuração
+
+```javascript
+const ZUCROPAY_API_KEY = 'sua_api_key';
+const ZUCROPAY_BASE_URL = 'https://api.appzucropay.com';
+
+const api = axios.create({
+  baseURL: ZUCROPAY_BASE_URL,
+  headers: {
+    'X-API-Key': ZUCROPAY_API_KEY,
+    'Content-Type': 'application/json'
+  }
+});
+```
+
+## Criar Cobrança PIX
+
+```javascript
+async function criarCobrancaPix(valor, descricao, cliente) {
+  try {
+    const response = await api.post('/api/charges', {
+      amount: valor,
+      description: descricao,
+      billing_type: 'PIX',
+      customer: {
+        name: cliente.nome,
+        cpf: cliente.cpf,
+        email: cliente.email
+      },
+      expiration_minutes: 30
+    });
+
+    if (response.data.success) {
+      console.log('QR Code:', response.data.charge.pix_qr_code);
+      console.log('Copia e Cola:', response.data.charge.pix_copy_paste);
+      return response.data.charge;
+    }
+  } catch (error) {
+    console.error('Erro ao criar cobrança:', error.response?.data);
+    throw error;
+  }
+}
+
+// Uso
+const cobranca = await criarCobrancaPix(
+  99.90, 
+  'Produto XYZ',
+  { nome: 'João Silva', cpf: '12345678900', email: 'joao@email.com' }
+);
+```
+
+## Verificar Status do Pagamento
+
+```javascript
+async function verificarPagamento(chargeId) {
+  const response = await api.get(`/api/charges/${chargeId}`);
+  return response.data.charge.status; // PENDING, RECEIVED, EXPIRED
+}
+```
+
+## Consultar Saldo
+
+```javascript
+async function consultarSaldo() {
+  const response = await api.get('/api/users/balance');
+  return {
+    disponivel: response.data.balance.available,
+    reservado: response.data.balance.reserved,
+    total: response.data.balance.total
+  };
+}
+```
+
+## Classe Completa
+
+```javascript
+class ZucroPay {
+  constructor(apiKey) {
+    this.apiKey = apiKey;
+    this.baseUrl = 'https://api.appzucropay.com';
+  }
+
+  async request(method, endpoint, data = null) {
+    const options = {
+      method,
+      headers: {
+        'X-API-Key': this.apiKey,
+        'Content-Type': 'application/json'
+      }
+    };
+
+    if (data) {
+      options.body = JSON.stringify(data);
+    }
+
+    const response = await fetch(`${this.baseUrl}${endpoint}`, options);
+    return response.json();
+  }
+
+  // Cobranças
+  async criarCobranca(data) {
+    return this.request('POST', '/api/charges', data);
+  }
+
+  async buscarCobranca(id) {
+    return this.request('GET', `/api/charges/${id}`);
+  }
+
+  async listarCobrancas() {
+    return this.request('GET', '/api/charges');
+  }
+
+  // Saldo
+  async saldo() {
+    return this.request('GET', '/api/users/balance');
+  }
+}
+
+// Uso
+const zucropay = new ZucroPay('sua_api_key');
+const cobranca = await zucropay.criarCobranca({
+  amount: 100,
+  description: 'Teste',
+  billing_type: 'PIX',
+  customer: { name: 'Cliente', cpf: '12345678900' }
+});
+```

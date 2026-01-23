@@ -373,4 +373,96 @@ export async function adminRoutes(app: FastifyInstance) {
       });
     }
   });
+
+  // ============================================
+  // CONFIGURAÇÃO DE WEBHOOK PIX
+  // ============================================
+
+  // Configurar webhook PIX na EfiBank
+  app.post('/webhook/pix/configure', {
+    preHandler: [standardRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    try {
+      const { configurePixWebhook } = await import('../../providers/efibank/efi.pix');
+      
+      // URL do webhook - deve ser HTTPS e acessível pela EfiBank
+      const webhookUrl = 'https://api.appzucropay.com/api/webhooks/efi';
+      
+      const result = await configurePixWebhook(webhookUrl);
+      
+      if (!result.success) {
+        return reply.status(400).send({
+          success: false,
+          error: result.error,
+          debug: result.debug,
+        });
+      }
+
+      return reply.send({
+        success: true,
+        message: 'Webhook PIX configurado com sucesso',
+        webhookUrl,
+        data: result.data,
+      });
+    } catch (error: any) {
+      console.error('Erro ao configurar webhook PIX:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error.message || 'Erro ao configurar webhook PIX',
+      });
+    }
+  });
+
+  // Consultar webhook PIX configurado
+  app.get('/webhook/pix', {
+    preHandler: [standardRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    try {
+      const { getPixWebhook } = await import('../../providers/efibank/efi.pix');
+      
+      const result = await getPixWebhook();
+      
+      return reply.send({
+        success: result.success,
+        webhookUrl: result.webhookUrl || null,
+        error: result.error,
+        data: result.data,
+      });
+    } catch (error: any) {
+      console.error('Erro ao consultar webhook PIX:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error.message || 'Erro ao consultar webhook PIX',
+      });
+    }
+  });
+
+  // Remover webhook PIX
+  app.delete('/webhook/pix', {
+    preHandler: [standardRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    try {
+      const { deletePixWebhook } = await import('../../providers/efibank/efi.pix');
+      
+      const result = await deletePixWebhook();
+      
+      if (!result.success) {
+        return reply.status(400).send({
+          success: false,
+          error: result.error,
+        });
+      }
+
+      return reply.send({
+        success: true,
+        message: 'Webhook PIX removido com sucesso',
+      });
+    } catch (error: any) {
+      console.error('Erro ao remover webhook PIX:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error.message || 'Erro ao remover webhook PIX',
+      });
+    }
+  });
 }

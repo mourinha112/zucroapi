@@ -1,0 +1,43 @@
+---
+title: 'Deletar Webhook'
+api: 'DELETE https://api.appzucropay.com/api/webhooks/{id}'
+description: 'Remove um webhook registrado'
+---
+
+## Autenticação
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token JWT
+</ParamField>
+
+## Path Parameters
+
+<ParamField path="id" type="string" required>
+  ID do webhook a ser removido
+</ParamField>
+
+## Response
+
+<ResponseField name="success" type="boolean">
+  Indica se a operação foi bem sucedida
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Mensagem de confirmação
+</ResponseField>
+
+<RequestExample>
+```bash cURL
+curl -X DELETE https://api.appzucropay.com/api/webhooks/wh_abc123 \
+  -H "Authorization: Bearer seu_token"
+```
+</RequestExample>
+
+<ResponseExample>
+```json Response
+{
+  "success": true,
+  "message": "Webhook removido com sucesso"
+}
+```
+</ResponseExample>

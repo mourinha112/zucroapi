@@ -1,0 +1,66 @@
+---
+title: 'Listar API Keys'
+api: 'GET https://api.appzucropay.com/api/keys'
+description: 'Lista todas as chaves de API do usuário'
+---
+
+## Autenticação
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token JWT
+</ParamField>
+
+## Response
+
+<ResponseField name="success" type="boolean">
+  Indica se a operação foi bem sucedida
+</ResponseField>
+
+<ResponseField name="keys" type="array">
+  Lista de chaves de API
+  <Expandable title="key">
+    <ResponseField name="id" type="string">
+      ID único da chave
+    </ResponseField>
+    <ResponseField name="name" type="string">
+      Nome da chave
+    </ResponseField>
+    <ResponseField name="key_preview" type="string">
+      Preview da chave (últimos 4 caracteres)
+    </ResponseField>
+    <ResponseField name="permissions" type="array">
+      Permissões da chave
+    </ResponseField>
+    <ResponseField name="last_used" type="string">
+      Último uso da chave
+    </ResponseField>
+    <ResponseField name="created_at" type="string">
+      Data de criação
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<RequestExample>
+```bash cURL
+curl https://api.appzucropay.com/api/keys \
+  -H "Authorization: Bearer seu_token"
+```
+</RequestExample>
+
+<ResponseExample>
+```json Response
+{
+  "success": true,
+  "keys": [
+    {
+      "id": "key_abc123",
+      "name": "Integração Loja Virtual",
+      "key_preview": "...xxxx",
+      "permissions": ["payments:read", "payments:write"],
+      "last_used": "2024-01-20T15:45:00Z",
+      "created_at": "2024-01-15T10:30:00Z"
+    }
+  ]
+}
+```
+</ResponseExample>

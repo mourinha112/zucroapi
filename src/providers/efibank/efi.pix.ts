@@ -157,3 +157,74 @@ export const getPixTransfer = async (e2eId: string) => {
     status: result.data.status,
   };
 };
+
+// ============================================
+// CONFIGURAÇÃO DE WEBHOOK PIX
+// ============================================
+
+// Configurar webhook PIX na EfiBank
+export const configurePixWebhook = async (webhookUrl: string) => {
+  const pixKey = env.EFI_PIX_KEY;
+  console.log(`[PIX] Configurando webhook para chave: ${pixKey}`);
+  console.log(`[PIX] URL do webhook: ${webhookUrl}`);
+
+  const result = await makePixRequest('PUT', `/v2/webhook/${pixKey}`, {
+    webhookUrl,
+  });
+
+  if (!result.success) {
+    console.error('[PIX] Erro ao configurar webhook:', result.data);
+    return {
+      success: false,
+      error: result.data?.mensagem || result.data?.message || 'Erro ao configurar webhook',
+      debug: result.data,
+    };
+  }
+
+  console.log('[PIX] Webhook configurado com sucesso');
+  return {
+    success: true,
+    data: result.data,
+  };
+};
+
+// Consultar webhook PIX configurado
+export const getPixWebhook = async () => {
+  const pixKey = env.EFI_PIX_KEY;
+  console.log(`[PIX] Consultando webhook da chave: ${pixKey}`);
+
+  const result = await makePixRequest('GET', `/v2/webhook/${pixKey}`);
+
+  if (!result.success) {
+    return {
+      success: false,
+      error: result.data?.mensagem || 'Webhook não configurado',
+      debug: result.data,
+    };
+  }
+
+  return {
+    success: true,
+    webhookUrl: result.data.webhookUrl,
+    data: result.data,
+  };
+};
+
+// Remover webhook PIX
+export const deletePixWebhook = async () => {
+  const pixKey = env.EFI_PIX_KEY;
+  console.log(`[PIX] Removendo webhook da chave: ${pixKey}`);
+
+  const result = await makePixRequest('DELETE', `/v2/webhook/${pixKey}`);
+
+  if (!result.success) {
+    return {
+      success: false,
+      error: result.data?.mensagem || 'Erro ao remover webhook',
+    };
+  }
+
+  return {
+    success: true,
+  };
+};
