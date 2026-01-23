@@ -1,6 +1,6 @@
-import { Queue, Worker, Job } from 'bullmq';
-import { redis, isRedisConnected } from '../config/redis';
+import { Queue } from 'bullmq';
 import { prisma } from '../config/database';
+import { env } from '../config/env';
 import {
   getEffectiveRates,
   calculatePixFeeSellerPays,
@@ -14,31 +14,42 @@ import {
 
 // Mock queue para quando Redis não está disponível
 const mockQueue = {
-  async add(name: string, data: any, opts?: any): Promise<any> {
-    console.log(`[Queue Mock] Job ${name} adicionado:`, data);
-    // Processar sincronamente em dev
-    if (name === 'pix_payment') {
-      await processPixPayment(data as PixWebhookJob);
-    } else if (name === 'release_reserve') {
-      await processReleaseReserve(data as ReleaseReserveJob);
+  async add(name: string, data: any, _opts?: any): Promise<any> {
+    console.log(`[Queue Mock] Job ${name} adicionado`);
+    // Processar sincronamente
+    try {
+      if (name === 'pix_payment') {
+        await processPixPayment(data as PixWebhookJob);
+      } else if (name === 'release_reserve') {
+        await processReleaseReserve(data as ReleaseReserveJob);
+      }
+    } catch (e) {
+      console.error(`[Queue Mock] Erro ao processar job ${name}:`, e);
     }
     return { id: 'mock-' + Date.now() };
   }
 };
 
-// Criar fila real se Redis disponível, senão usar mock
+// Criar fila real se em produção e Redis disponível
 let realQueue: Queue | null = null;
-if (redis) {
+if (env.NODE_ENV === 'production' && env.REDIS_URL) {
   try {
-    realQueue = new Queue('webhooks', { connection: redis });
+    realQueue = new Queue('webhooks', { 
+      connection: { 
+        host: 'localhost',
+        port: 6379,
+        maxRetriesPerRequest: 3,
+      }
+    });
     console.log('[Queue] ✅ Fila de webhooks inicializada');
   } catch (e) {
     console.log('[Queue] ⚠️ Erro ao criar fila, usando mock');
   }
+} else {
+  console.log('[Queue] ⚠️ Usando mock (dev mode)');
 }
 
 export const webhookQueue = realQueue || mockQueue;
-console.log('[Queue]', realQueue ? '✅ Usando BullMQ' : '⚠️ Usando mock (sem Redis)');
 
 // Tipos de jobs
 interface PixWebhookJob {
