@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../config/database';
 import { webhookQueue } from '../../queues/webhook.queue';
 import { authenticate, standardRateLimit, webhookRateLimit, createResourceRateLimit } from '../../middlewares';
+import { notifySale } from '../push/push.service';
 
 export async function webhooksRoutes(app: FastifyInstance) {
   // Webhook da EfiBank (público - não requer auth, com rate limit específico)
@@ -103,6 +104,17 @@ export async function webhooksRoutes(app: FastifyInstance) {
           });
 
           console.log(`[WEBHOOK] Cobrança ${chargeId} atualizada: ${newStatus}`);
+
+          // Enviar notificação push se foi confirmado
+          if (newStatus === 'RECEIVED') {
+            try {
+              const customerName = payment.customer_name || 'Cliente';
+              await notifySale(payment.user_id, Number(payment.value), customerName, payment.id);
+              console.log(`[WEBHOOK] Notificação push enviada para ${payment.user_id}`);
+            } catch (pushError) {
+              console.error('[WEBHOOK] Erro ao enviar notificação push:', pushError);
+            }
+          }
         }
       }
     }

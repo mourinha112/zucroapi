@@ -7,6 +7,7 @@ import {
   calculatePixFeeBuyerPays,
   calculateReleaseDate,
 } from '../providers/efibank/fee.calculator';
+import { notifySale } from '../modules/push/push.service';
 
 // ============================================
 // FILAS COM REDIS (ou mock sem Redis)
@@ -212,6 +213,15 @@ async function processPixPayment(data: PixWebhookJob) {
     net_value: feeCalc.netValue,
     status: 'RECEIVED',
   });
+
+  // Enviar notificação push para o vendedor
+  try {
+    const customerName = pagador?.nome || payment.customer_name || 'Cliente';
+    await notifySale(payment.user_id, grossValue, customerName, payment.id);
+    console.log(`[PIX] Notificação push enviada para ${payment.user_id}`);
+  } catch (pushError) {
+    console.error('[PIX] Erro ao enviar notificação push:', pushError);
+  }
 
   console.log(`[PIX] Pagamento processado: ${payment.id} - R$${feeCalc.netValue.toFixed(2)} líquido`);
 }

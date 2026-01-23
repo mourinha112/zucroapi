@@ -21,6 +21,7 @@ import { withdrawalsRoutes } from './modules/withdrawals/withdrawals.routes';
 import { adminRoutes } from './modules/admin/admin.routes';
 import { integrationsRoutes } from './modules/integrations/integrations.routes';
 import { verificationRoutes } from './modules/verification/verification.routes';
+import { pushRoutes } from './modules/push/push.routes';
 
 const app = Fastify({
   logger: {
@@ -81,6 +82,7 @@ async function bootstrap() {
   app.register(adminRoutes, { prefix: '/api/admin' });
   app.register(integrationsRoutes, { prefix: '/api/v1' });
   app.register(verificationRoutes, { prefix: '/api/verification' });
+  app.register(pushRoutes, { prefix: '/api/push' });
 
   // Global error handler
   app.setErrorHandler((error, request, reply) => {
