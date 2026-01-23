@@ -328,4 +328,49 @@ export async function adminRoutes(app: FastifyInstance) {
 
     return reply.send({ success: true, verification });
   });
+
+  // Configurações do Gateway (EfiBank)
+  app.get('/gateway-config', {
+    preHandler: [standardRateLimit, authenticateAdmin],
+  }, async (_request, reply) => {
+    try {
+      const clientId = process.env.EFI_CLIENT_ID || '';
+      const clientSecret = process.env.EFI_CLIENT_SECRET || '';
+      const pixKey = process.env.EFI_PIX_KEY || '';
+      const certificate = process.env.EFI_CERTIFICATE_BASE64 || '';
+      const sandbox = process.env.EFI_SANDBOX === 'true';
+
+      // Mascarar dados sensíveis
+      const maskString = (str: string) => {
+        if (!str || str.length < 8) return '';
+        return str.substring(0, 4) + '****' + str.substring(str.length - 4);
+      };
+
+      const configured = !!(clientId && clientSecret && pixKey && certificate);
+
+      return reply.send({
+        success: true,
+        config: {
+          configured,
+          provider: 'EfiBank',
+          sandbox,
+          clientIdMasked: clientId ? maskString(clientId) : null,
+          clientSecretConfigured: !!clientSecret,
+          pixKeyMasked: pixKey ? maskString(pixKey) : null,
+          certificateConfigured: !!certificate,
+          features: {
+            pix: configured,
+            creditCard: configured, // EfiBank suporta cartão quando configurado
+            boleto: configured,
+          },
+        },
+      });
+    } catch (error: any) {
+      console.error('Erro ao buscar config do gateway:', error);
+      return reply.status(500).send({
+        success: false,
+        error: 'Erro ao buscar configurações do gateway',
+      });
+    }
+  });
 }
