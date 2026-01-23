@@ -77,32 +77,38 @@ async function bootstrap() {
     try {
       const { configurePixWebhook, getPixWebhook } = await import('./providers/efibank/efi.pix');
       
-      // Primeiro verifica se já está configurado
+      const correctWebhookUrl = 'https://api.appzucropay.com/api/webhooks/efi';
+      
+      // Verifica se já está configurado com a URL correta
       const current = await getPixWebhook();
-      if (current.success && current.webhookUrl) {
+      if (current.success && current.webhookUrl === correctWebhookUrl) {
         return reply.send({
           success: true,
-          message: 'Webhook já configurado',
+          message: 'Webhook já configurado corretamente',
           webhookUrl: current.webhookUrl,
         });
       }
       
-      // Configura o webhook
-      const webhookUrl = 'https://api.appzucropay.com/api/webhooks/efi';
-      const result = await configurePixWebhook(webhookUrl);
+      // Configura/Reconfigura o webhook com a URL correta
+      console.log('[Setup] URL atual:', current.webhookUrl);
+      console.log('[Setup] Reconfigurando para:', correctWebhookUrl);
+      
+      const result = await configurePixWebhook(correctWebhookUrl);
       
       if (!result.success) {
         return reply.status(400).send({
           success: false,
           error: result.error,
           debug: result.debug,
+          previousUrl: current.webhookUrl,
         });
       }
 
       return reply.send({
         success: true,
-        message: 'Webhook PIX configurado com sucesso!',
-        webhookUrl,
+        message: 'Webhook PIX reconfigurado com sucesso!',
+        webhookUrl: correctWebhookUrl,
+        previousUrl: current.webhookUrl || null,
       });
     } catch (error: any) {
       return reply.status(500).send({
