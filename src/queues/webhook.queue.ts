@@ -164,12 +164,12 @@ async function processPixPayment(data: PixWebhookJob) {
     },
   });
 
-  // Criar transação de recebimento
+  // Criar transação de recebimento (valor líquido)
   await prisma.transaction.create({
     data: {
       user_id: payment.user_id,
-      type: 'payment_received',
-      amount: baseValue,
+      type: 'deposit',
+      amount: feeCalc.netValue,
       status: 'completed',
       description: `PIX recebido - ${payment.description}`,
       efi_txid: txid,
@@ -180,19 +180,8 @@ async function processPixPayment(data: PixWebhookJob) {
         reserve_amount: feeCalc.reserveAmount,
         fee_payer: feePayer,
         end_to_end_id: endToEndId,
+        payment_id: payment.id,
       },
-    },
-  });
-
-  // Registrar taxa da plataforma
-  await prisma.transaction.create({
-    data: {
-      user_id: payment.user_id,
-      type: 'platform_fee',
-      amount: -feeCalc.platformFee,
-      status: 'completed',
-      description: `Taxa da plataforma - ${payment.description}`,
-      metadata: { payment_id: payment.id },
     },
   });
 
@@ -273,11 +262,11 @@ async function processReleaseReserve(data: ReleaseReserveJob) {
   await prisma.transaction.create({
     data: {
       user_id: reserve.user_id,
-      type: 'reserve_released',
+      type: 'deposit',
       amount: Number(reserve.reserve_amount),
       status: 'completed',
       description: `Liberação de reserva - ${reserve.description}`,
-      metadata: { reserve_id: reserve.id },
+      metadata: { reserve_id: reserve.id, type: 'reserve_released' },
     },
   });
 
