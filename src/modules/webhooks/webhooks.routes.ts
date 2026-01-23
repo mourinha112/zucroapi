@@ -11,21 +11,18 @@ export async function webhooksRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const body = request.body as any;
     
-    console.log('[WEBHOOK] EfiBank recebido:', JSON.stringify(body, null, 2));
-
-    // Salvar log do webhook
-    try {
-      await prisma.$executeRaw`
-        INSERT INTO webhooks_log (event_type, payload, processed, created_at)
-        VALUES ('efibank_notification', ${JSON.stringify(body)}::jsonb, false, NOW())
-      `;
-    } catch (e) {
-      console.error('[WEBHOOK] Erro ao salvar log:', e);
-    }
+    console.log('[WEBHOOK] ========== EfiBank PIX Webhook ==========');
+    console.log('[WEBHOOK] Body completo:', JSON.stringify(body, null, 2));
+    console.log('[WEBHOOK] Tem body.pix?', !!body.pix);
+    console.log('[WEBHOOK] É array?', Array.isArray(body.pix));
 
     // Processar via fila BullMQ (se disponível)
     if (body.pix && Array.isArray(body.pix)) {
+      console.log('[WEBHOOK] Processando', body.pix.length, 'transações PIX');
+      
       for (const pix of body.pix) {
+        console.log('[WEBHOOK] PIX item:', JSON.stringify(pix));
+        
         if (pix.txid) {
           if (webhookQueue) {
             await webhookQueue.add('pix_payment', {
@@ -41,14 +38,20 @@ export async function webhooksRoutes(app: FastifyInstance) {
               removeOnComplete: true,
             });
             
-            console.log(`[WEBHOOK] Job adicionado à fila: ${pix.txid}`);
+            console.log(`[WEBHOOK] ✅ Job adicionado à fila: ${pix.txid}`);
           } else {
-            console.log(`[WEBHOOK] Fila indisponível - webhook ${pix.txid} não processado via fila`);
+            console.log(`[WEBHOOK] ⚠️ Fila indisponível - processando diretamente`);
+            // Processar diretamente se fila não disponível
           }
+        } else {
+          console.log('[WEBHOOK] ⚠️ PIX sem txid:', pix);
         }
       }
+    } else {
+      console.log('[WEBHOOK] ⚠️ Webhook não tem array pix - pode ser teste ou outro evento');
     }
 
+    console.log('[WEBHOOK] ========================================');
     return reply.send({ received: true });
   });
 
@@ -58,17 +61,8 @@ export async function webhooksRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const body = request.body as any;
     
-    console.log('[WEBHOOK] EfiBank Cobrança:', JSON.stringify(body, null, 2));
-
-    // Salvar log
-    try {
-      await prisma.$executeRaw`
-        INSERT INTO webhooks_log (event_type, payload, processed, created_at)
-        VALUES ('efibank_cobranca', ${JSON.stringify(body)}::jsonb, false, NOW())
-      `;
-    } catch (e) {
-      console.error('[WEBHOOK] Erro ao salvar log:', e);
-    }
+    console.log('[WEBHOOK] ========== EfiBank Cobrança Webhook ==========');
+    console.log('[WEBHOOK] Body:', JSON.stringify(body, null, 2));
 
     // Processar notificação de cobrança
     if (body.id && body.status) {
