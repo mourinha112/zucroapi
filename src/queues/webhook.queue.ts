@@ -226,6 +226,24 @@ async function processPixPayment(data: PixWebhookJob) {
   console.log(`[PIX] Pagamento processado: ${payment.id} - R$${feeCalc.netValue.toFixed(2)} líquido`);
 }
 
+// Função exportada para processar PIX diretamente (para testes)
+export async function processPixPaymentDirect(data: {
+  txid: string;
+  endToEndId: string;
+  valor: string;
+  pagador?: { nome?: string; cpf?: string };
+}) {
+  return processPixPayment({
+    type: 'pix_payment',
+    txid: data.txid,
+    endToEndId: data.endToEndId,
+    status: 'CONCLUIDA',
+    valor: data.valor,
+    horario: new Date().toISOString(),
+    pagador: data.pagador,
+  });
+}
+
 // Processar liberação de reserva
 async function processReleaseReserve(data: ReleaseReserveJob) {
   const reserve = await prisma.balanceReserve.findUnique({

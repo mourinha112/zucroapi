@@ -72,6 +72,78 @@ async function bootstrap() {
     return { status: 'ok', timestamp: new Date().toISOString() };
   });
 
+  // Rota para simular pagamento PIX (APENAS PARA TESTE)
+  app.get('/test-pix/:txid', async (request, reply) => {
+    const { txid } = request.params as { txid: string };
+    
+    console.log('[TEST] Simulando pagamento PIX para txid:', txid);
+    
+    // Buscar pagamento pelo txid
+    const payment = await prisma.payment.findFirst({
+      where: {
+        OR: [
+          { efi_txid: txid },
+          { asaas_payment_id: txid },
+        ],
+      },
+      include: {
+        user: true,
+        payment_link: {
+          include: { product: true },
+        },
+      },
+    });
+
+    if (!payment) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Pagamento não encontrado',
+        txid,
+      });
+    }
+
+    if (payment.status === 'RECEIVED') {
+      return reply.send({
+        success: true,
+        message: 'Pagamento já foi processado anteriormente',
+        payment: {
+          id: payment.id,
+          status: payment.status,
+          value: payment.value,
+        },
+      });
+    }
+
+    // Importar e processar
+    const { processPixPaymentDirect } = await import('./queues/webhook.queue');
+    
+    await processPixPaymentDirect({
+      txid,
+      endToEndId: 'TEST_' + Date.now(),
+      valor: String(payment.value),
+      pagador: {
+        nome: 'Teste Manual',
+        cpf: '00000000000',
+      },
+    });
+
+    // Buscar pagamento atualizado
+    const updatedPayment = await prisma.payment.findUnique({
+      where: { id: payment.id },
+    });
+
+    return reply.send({
+      success: true,
+      message: 'Pagamento simulado com sucesso!',
+      payment: {
+        id: updatedPayment?.id,
+        status: updatedPayment?.status,
+        value: updatedPayment?.value,
+        net_value: updatedPayment?.net_value,
+      },
+    });
+  });
+
   // Rota especial para configurar webhook PIX (rodar uma vez)
   app.get('/setup-webhook', async (request, reply) => {
     try {
