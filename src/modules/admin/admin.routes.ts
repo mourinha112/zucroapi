@@ -175,6 +175,11 @@ export async function adminRoutes(app: FastifyInstance) {
 
     const withdrawal = await prisma.withdrawal.findUnique({
       where: { id },
+      include: {
+        user: {
+          select: { name: true, email: true },
+        },
+      },
     });
 
     if (!withdrawal) {
@@ -191,6 +196,93 @@ export async function adminRoutes(app: FastifyInstance) {
       });
     }
 
+    // Se aprovado, enviar PIX automaticamente
+    if (body.status === 'approved' && withdrawal.status === 'pending') {
+      try {
+        const { createPixTransfer } = await import('../../providers/efibank/efi.pix');
+        
+        console.log(`[SAQUE] Processando saque automático ID: ${id}`);
+        console.log(`[SAQUE] Valor: R$ ${withdrawal.amount}, Chave: ${withdrawal.pix_key}`);
+
+        const pixResult = await createPixTransfer({
+          value: Number(withdrawal.amount),
+          pixKey: withdrawal.pix_key!,
+          pixKeyType: withdrawal.pix_key_type || 'cpf',
+          description: `Saque ZucroPay - ${withdrawal.user?.name || 'Usuario'}`,
+        });
+
+        if (!pixResult.success) {
+          console.error(`[SAQUE] Erro ao enviar PIX:`, pixResult.error);
+          
+          // Log do erro
+          await prisma.adminLog.create({
+            data: {
+              admin_id: currentUser.id,
+              action: 'withdrawal_pix_error',
+              target_type: 'withdrawal',
+              target_id: id,
+              details: { error: pixResult.error, debug: pixResult.debug },
+            },
+          });
+
+          return reply.status(400).send({ 
+            success: false, 
+            error: `Erro ao enviar PIX: ${pixResult.error}`,
+            debug: pixResult.debug,
+          });
+        }
+
+        console.log(`[SAQUE] PIX enviado com sucesso! E2E: ${pixResult.endToEndId}`);
+
+        // Atualizar saque como completed (já foi pago)
+        const updated = await prisma.withdrawal.update({
+          where: { id },
+          data: {
+            status: 'completed',
+            reviewed_by: currentUser.id,
+            reviewed_at: new Date(),
+            completed_at: new Date(),
+            // Salvar dados da transação PIX no campo admin_notes
+            admin_notes: `PIX enviado automaticamente. E2E: ${pixResult.endToEndId || pixResult.idEnvio}`,
+          },
+        });
+
+        // Log da ação
+        await prisma.adminLog.create({
+          data: {
+            admin_id: currentUser.id,
+            action: 'approved_withdrawal_auto_pix',
+            target_type: 'withdrawal',
+            target_id: id,
+            details: { 
+              endToEndId: pixResult.endToEndId,
+              idEnvio: pixResult.idEnvio,
+              status: pixResult.status,
+            },
+          },
+        });
+
+        return reply.send({ 
+          success: true, 
+          message: 'Saque aprovado e PIX enviado automaticamente!',
+          withdrawal: updated,
+          pix: {
+            endToEndId: pixResult.endToEndId,
+            status: pixResult.status,
+          },
+        });
+
+      } catch (error: any) {
+        console.error(`[SAQUE] Erro crítico ao processar saque:`, error);
+        
+        return reply.status(500).send({ 
+          success: false, 
+          error: `Erro ao processar saque: ${error.message}`,
+        });
+      }
+    }
+
+    // Para outros status (rejected, completed manual)
     const updated = await prisma.withdrawal.update({
       where: { id },
       data: {
@@ -644,26 +736,26 @@ export async function adminRoutes(app: FastifyInstance) {
     preHandler: [standardRateLimit, authenticateAdmin],
   }, async (request, reply) => {
     try {
-      // Buscar usuários com role de manager ou admin
-      const managers = await prisma.$queryRaw`
-        SELECT id, name, email, created_at, 
-               COALESCE((metadata->>'role')::text, 'user') as role,
-               COALESCE((metadata->>'permissions')::jsonb, '[]'::jsonb) as permissions
-        FROM users 
-        WHERE (metadata->>'role')::text IN ('admin', 'manager')
-        ORDER BY created_at DESC
-      ` as any[];
+      // Buscar na tabela admin_credentials
+      const managers = await prisma.adminCredential.findMany({
+        where: {
+          is_active: true,
+        },
+        orderBy: { created_at: 'desc' },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          permissions: true,
+          created_at: true,
+          last_login: true,
+        },
+      });
 
       return reply.send({
         success: true,
-        managers: managers.map(m => ({
-          id: m.id,
-          name: m.name,
-          email: m.email,
-          role: m.role,
-          permissions: m.permissions,
-          created_at: m.created_at,
-        })),
+        managers,
       });
     } catch (error: any) {
       console.error('Erro ao listar gerentes:', error);
@@ -683,79 +775,49 @@ export async function adminRoutes(app: FastifyInstance) {
     };
 
     try {
-      // Verificar se email já existe
-      const existingUser = await prisma.user.findUnique({
-        where: { email: body.email },
+      // Verificar se email já existe na tabela admin_credentials
+      const existingAdmin = await prisma.adminCredential.findUnique({
+        where: { email: body.email.toLowerCase() },
       });
 
-      if (existingUser) {
-        // Atualizar para gerente
-        await prisma.$executeRaw`
-          UPDATE users 
-          SET metadata = jsonb_set(
-            COALESCE(metadata, '{}'::jsonb),
-            '{role}',
-            '"manager"'
-          )
-          WHERE id = ${existingUser.id}::uuid
-        `;
-
-        if (body.permissions && body.permissions.length > 0) {
-          const permissionsJson = JSON.stringify(body.permissions);
-          await prisma.$executeRaw`
-            UPDATE users 
-            SET metadata = jsonb_set(
-              COALESCE(metadata, '{}'::jsonb),
-              '{permissions}',
-              ${permissionsJson}::jsonb
-            )
-            WHERE id = ${existingUser.id}::uuid
-          `;
+      if (existingAdmin) {
+        // Atualizar para gerente se não for admin principal
+        if (existingAdmin.role === 'admin') {
+          return reply.status(400).send({
+            success: false,
+            error: 'Este usuário já é um administrador',
+          });
         }
+
+        const updated = await prisma.adminCredential.update({
+          where: { id: existingAdmin.id },
+          data: {
+            is_active: true,
+            permissions: body.permissions || [],
+          },
+        });
 
         return reply.send({
           success: true,
-          message: 'Usuário promovido a gerente',
-          manager: { id: existingUser.id, email: existingUser.email, name: existingUser.name },
+          message: 'Gerente reativado com sucesso',
+          manager: { id: updated.id, email: updated.email, name: updated.name },
         });
       }
 
-      // Criar novo usuário gerente
+      // Criar novo gerente na tabela admin_credentials
       const bcrypt = await import('bcryptjs');
       const hashedPassword = await bcrypt.hash(body.password, 10);
 
-      const newManager = await prisma.user.create({
+      const newManager = await prisma.adminCredential.create({
         data: {
           name: body.name,
-          email: body.email,
+          email: body.email.toLowerCase(),
           password_hash: hashedPassword,
-          account_status: 'approved',
+          role: 'gerente',
+          is_active: true,
+          permissions: body.permissions || [],
         },
       });
-
-      // Definir role como manager
-      await prisma.$executeRaw`
-        UPDATE users 
-        SET metadata = jsonb_set(
-          COALESCE(metadata, '{}'::jsonb),
-          '{role}',
-          '"manager"'
-        )
-        WHERE id = ${newManager.id}::uuid
-      `;
-
-      if (body.permissions && body.permissions.length > 0) {
-        const permissionsJson = JSON.stringify(body.permissions);
-        await prisma.$executeRaw`
-          UPDATE users 
-          SET metadata = jsonb_set(
-            COALESCE(metadata, '{}'::jsonb),
-            '{permissions}',
-            ${permissionsJson}::jsonb
-          )
-          WHERE id = ${newManager.id}::uuid
-        `;
-      }
 
       return reply.status(201).send({
         success: true,
@@ -771,39 +833,32 @@ export async function adminRoutes(app: FastifyInstance) {
     }
   });
 
-  // Remover gerente (rebaixar para usuário comum)
+  // Remover gerente (desativar)
   app.delete('/managers/:id', {
     preHandler: [sensitiveActionRateLimit, authenticateAdmin],
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
     try {
-      // Verificar se o usuário existe
-      const user = await prisma.user.findUnique({
+      // Verificar se o gerente existe
+      const manager = await prisma.adminCredential.findUnique({
         where: { id },
       });
 
-      if (!user) {
-        return reply.status(404).send({ success: false, error: 'Usuário não encontrado' });
+      if (!manager) {
+        return reply.status(404).send({ success: false, error: 'Gerente não encontrado' });
       }
 
-      // Remover role de gerente
-      await prisma.$executeRaw`
-        UPDATE users 
-        SET metadata = jsonb_set(
-          COALESCE(metadata, '{}'::jsonb),
-          '{role}',
-          '"user"'
-        )
-        WHERE id = ${id}::uuid
-      `;
+      // Não permitir remover o admin principal
+      if (manager.role === 'admin') {
+        return reply.status(400).send({ success: false, error: 'Não é possível remover o administrador principal' });
+      }
 
-      // Remover permissões
-      await prisma.$executeRaw`
-        UPDATE users 
-        SET metadata = metadata - 'permissions'
-        WHERE id = ${id}::uuid
-      `;
+      // Desativar o gerente
+      await prisma.adminCredential.update({
+        where: { id },
+        data: { is_active: false },
+      });
 
       return reply.send({
         success: true,
