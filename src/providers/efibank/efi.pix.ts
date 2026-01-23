@@ -100,42 +100,50 @@ export const getPixCharge = async (txid: string) => {
   };
 };
 
-// Criar transferência PIX (saque)
+// Criar transferência PIX (saque) - Endpoint correto da EFI: /v2/gn/pix/:idEnvio
 export const createPixTransfer = async (data: {
   value: number;
   pixKey: string;
   pixKeyType: string;
   description: string;
 }) => {
-  const idEnvio = `zp${Date.now()}${Math.random().toString(36).substr(2, 20)}`;
-  console.log('[PIX] Criando transferência:', idEnvio);
+  // ID único para o envio (máx 35 caracteres alfanuméricos)
+  const idEnvio = `zp${Date.now()}`.substring(0, 35);
+  console.log('[PIX] Criando transferência (envio):', idEnvio);
+  console.log('[PIX] Chave destino:', data.pixKey);
+  console.log('[PIX] Valor:', data.value.toFixed(2));
 
   const transferData = {
     valor: data.value.toFixed(2),
     pagador: {
       chave: env.EFI_PIX_KEY,
+      infoPagador: data.description.substring(0, 140), // máx 140 caracteres
     },
     favorecido: {
       chave: data.pixKey,
     },
-    infoPagador: data.description,
   };
 
-  const result = await makePixRequest('PUT', `/v2/pix/${idEnvio}`, transferData);
+  console.log('[PIX] Dados do envio:', JSON.stringify(transferData));
+
+  // Endpoint correto para envio de PIX na EFI: /v2/gn/pix/:idEnvio
+  const result = await makePixRequest('PUT', `/v2/gn/pix/${idEnvio}`, transferData);
 
   if (!result.success) {
     console.error('[PIX] Erro na transferência:', result.data);
     return {
       success: false,
-      error: result.data?.mensagem || result.data?.erro?.motivo || 'Erro ao processar transferência',
+      error: result.data?.mensagem || result.data?.erro?.motivo || result.data?.message || 'Erro ao processar transferência',
       debug: result.data,
     };
   }
 
+  console.log('[PIX] Transferência realizada com sucesso:', result.data);
+
   return {
     success: true,
     idEnvio,
-    endToEndId: result.data.endToEndId,
+    endToEndId: result.data.endToEndId || result.data.e2eId,
     status: result.data.status,
   };
 };
