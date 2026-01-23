@@ -75,8 +75,17 @@ export async function withdrawalsRoutes(app: FastifyInstance) {
         },
       });
 
-      // Nota: Não criamos transaction aqui pois o withdrawal já registra a operação
-      // A transaction será criada quando o saque for aprovado/processado
+      // Criar transação (usar 'withdraw' não 'withdrawal')
+      await prisma.transaction.create({
+        data: {
+          user_id: decoded.id,
+          type: 'withdraw',
+          amount: body.amount,
+          status: 'pending',
+          description: `Saque PIX - ${body.pix_key}`,
+          metadata: { withdrawal_id: withdrawal.id, fee: withdrawalFee },
+        },
+      });
 
       return reply.status(201).send({ 
         success: true, 
