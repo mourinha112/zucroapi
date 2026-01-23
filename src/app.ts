@@ -72,6 +72,46 @@ async function bootstrap() {
     return { status: 'ok', timestamp: new Date().toISOString() };
   });
 
+  // Rota especial para configurar webhook PIX (rodar uma vez)
+  app.get('/setup-webhook', async (request, reply) => {
+    try {
+      const { configurePixWebhook, getPixWebhook } = await import('./providers/efibank/efi.pix');
+      
+      // Primeiro verifica se já está configurado
+      const current = await getPixWebhook();
+      if (current.success && current.webhookUrl) {
+        return reply.send({
+          success: true,
+          message: 'Webhook já configurado',
+          webhookUrl: current.webhookUrl,
+        });
+      }
+      
+      // Configura o webhook
+      const webhookUrl = 'https://api.appzucropay.com/api/webhooks/efi';
+      const result = await configurePixWebhook(webhookUrl);
+      
+      if (!result.success) {
+        return reply.status(400).send({
+          success: false,
+          error: result.error,
+          debug: result.debug,
+        });
+      }
+
+      return reply.send({
+        success: true,
+        message: 'Webhook PIX configurado com sucesso!',
+        webhookUrl,
+      });
+    } catch (error: any) {
+      return reply.status(500).send({
+        success: false,
+        error: error.message,
+      });
+    }
+  });
+
   // API Routes
   app.register(authRoutes, { prefix: '/api/auth' });
   app.register(usersRoutes, { prefix: '/api/users' });
