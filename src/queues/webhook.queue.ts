@@ -216,7 +216,7 @@ async function processPixPayment(data: PixWebhookJob) {
 
   // Enviar notificação push para o vendedor
   try {
-    const customerName = pagador?.nome || payment.customer_name || 'Cliente';
+    const customerName = pagador?.nome || 'Cliente';
     await notifySale(payment.user_id, grossValue, customerName, payment.id);
     console.log(`[PIX] Notificação push enviada para ${payment.user_id}`);
   } catch (pushError) {

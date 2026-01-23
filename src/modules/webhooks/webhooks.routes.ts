@@ -108,8 +108,7 @@ export async function webhooksRoutes(app: FastifyInstance) {
           // Enviar notificação push se foi confirmado
           if (newStatus === 'RECEIVED') {
             try {
-              const customerName = payment.customer_name || 'Cliente';
-              await notifySale(payment.user_id, Number(payment.value), customerName, payment.id);
+              await notifySale(payment.user_id, Number(payment.value), 'Cliente', payment.id);
               console.log(`[WEBHOOK] Notificação push enviada para ${payment.user_id}`);
             } catch (pushError) {
               console.error('[WEBHOOK] Erro ao enviar notificação push:', pushError);
