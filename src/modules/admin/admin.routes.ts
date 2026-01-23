@@ -634,4 +634,187 @@ export async function adminRoutes(app: FastifyInstance) {
       });
     }
   });
+
+  // ============================================
+  // GERENTES (SUB-ADMINS)
+  // ============================================
+
+  // Listar gerentes
+  app.get('/managers', {
+    preHandler: [standardRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    try {
+      // Buscar usuários com role de manager ou admin
+      const managers = await prisma.$queryRaw`
+        SELECT id, name, email, created_at, 
+               COALESCE((metadata->>'role')::text, 'user') as role,
+               COALESCE((metadata->>'permissions')::jsonb, '[]'::jsonb) as permissions
+        FROM users 
+        WHERE (metadata->>'role')::text IN ('admin', 'manager')
+        ORDER BY created_at DESC
+      ` as any[];
+
+      return reply.send({
+        success: true,
+        managers: managers.map(m => ({
+          id: m.id,
+          name: m.name,
+          email: m.email,
+          role: m.role,
+          permissions: m.permissions,
+          created_at: m.created_at,
+        })),
+      });
+    } catch (error: any) {
+      console.error('Erro ao listar gerentes:', error);
+      return reply.send({ success: true, managers: [] });
+    }
+  });
+
+  // Criar gerente
+  app.post('/managers', {
+    preHandler: [sensitiveActionRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    const body = request.body as {
+      email: string;
+      name: string;
+      password: string;
+      permissions?: string[];
+    };
+
+    try {
+      // Verificar se email já existe
+      const existingUser = await prisma.user.findUnique({
+        where: { email: body.email },
+      });
+
+      if (existingUser) {
+        // Atualizar para gerente
+        await prisma.$executeRaw`
+          UPDATE users 
+          SET metadata = jsonb_set(
+            COALESCE(metadata, '{}'::jsonb),
+            '{role}',
+            '"manager"'
+          )
+          WHERE id = ${existingUser.id}::uuid
+        `;
+
+        if (body.permissions && body.permissions.length > 0) {
+          const permissionsJson = JSON.stringify(body.permissions);
+          await prisma.$executeRaw`
+            UPDATE users 
+            SET metadata = jsonb_set(
+              COALESCE(metadata, '{}'::jsonb),
+              '{permissions}',
+              ${permissionsJson}::jsonb
+            )
+            WHERE id = ${existingUser.id}::uuid
+          `;
+        }
+
+        return reply.send({
+          success: true,
+          message: 'Usuário promovido a gerente',
+          manager: { id: existingUser.id, email: existingUser.email, name: existingUser.name },
+        });
+      }
+
+      // Criar novo usuário gerente
+      const bcrypt = await import('bcryptjs');
+      const hashedPassword = await bcrypt.hash(body.password, 10);
+
+      const newManager = await prisma.user.create({
+        data: {
+          name: body.name,
+          email: body.email,
+          password_hash: hashedPassword,
+          account_status: 'approved',
+        },
+      });
+
+      // Definir role como manager
+      await prisma.$executeRaw`
+        UPDATE users 
+        SET metadata = jsonb_set(
+          COALESCE(metadata, '{}'::jsonb),
+          '{role}',
+          '"manager"'
+        )
+        WHERE id = ${newManager.id}::uuid
+      `;
+
+      if (body.permissions && body.permissions.length > 0) {
+        const permissionsJson = JSON.stringify(body.permissions);
+        await prisma.$executeRaw`
+          UPDATE users 
+          SET metadata = jsonb_set(
+            COALESCE(metadata, '{}'::jsonb),
+            '{permissions}',
+            ${permissionsJson}::jsonb
+          )
+          WHERE id = ${newManager.id}::uuid
+        `;
+      }
+
+      return reply.status(201).send({
+        success: true,
+        message: 'Gerente criado com sucesso',
+        manager: { id: newManager.id, email: newManager.email, name: newManager.name },
+      });
+    } catch (error: any) {
+      console.error('Erro ao criar gerente:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error.message || 'Erro ao criar gerente',
+      });
+    }
+  });
+
+  // Remover gerente (rebaixar para usuário comum)
+  app.delete('/managers/:id', {
+    preHandler: [sensitiveActionRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    try {
+      // Verificar se o usuário existe
+      const user = await prisma.user.findUnique({
+        where: { id },
+      });
+
+      if (!user) {
+        return reply.status(404).send({ success: false, error: 'Usuário não encontrado' });
+      }
+
+      // Remover role de gerente
+      await prisma.$executeRaw`
+        UPDATE users 
+        SET metadata = jsonb_set(
+          COALESCE(metadata, '{}'::jsonb),
+          '{role}',
+          '"user"'
+        )
+        WHERE id = ${id}::uuid
+      `;
+
+      // Remover permissões
+      await prisma.$executeRaw`
+        UPDATE users 
+        SET metadata = metadata - 'permissions'
+        WHERE id = ${id}::uuid
+      `;
+
+      return reply.send({
+        success: true,
+        message: 'Gerente removido com sucesso',
+      });
+    } catch (error: any) {
+      console.error('Erro ao remover gerente:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error.message || 'Erro ao remover gerente',
+      });
+    }
+  });
 }
