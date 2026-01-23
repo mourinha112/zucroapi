@@ -1,0 +1,120 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "ZucroPay API",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#5818C8",
+    "light": "#8B5CF6",
+    "dark": "#4C1D95",
+    "anchors": {
+      "from": "#5818C8",
+      "to": "#8B5CF6"
+    }
+  },
+  "topbarLinks": [
+    {
+      "name": "Dashboard",
+      "url": "https://dashboard.appzucropay.com"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Criar Conta",
+    "url": "https://dashboard.appzucropay.com/register"
+  },
+  "tabs": [
+    {
+      "name": "API Reference",
+      "url": "api-reference"
+    }
+  ],
+  "anchors": [
+    {
+      "name": "Dashboard",
+      "icon": "gauge",
+      "url": "https://dashboard.appzucropay.com"
+    },
+    {
+      "name": "Suporte",
+      "icon": "envelope",
+      "url": "mailto:suporte@appzucropay.com"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Começando",
+      "pages": [
+        "introduction",
+        "quickstart",
+        "authentication"
+      ]
+    },
+    {
+      "group": "Conceitos",
+      "pages": [
+        "concepts/charges",
+        "concepts/payments",
+        "concepts/webhooks",
+        "concepts/fees"
+      ]
+    },
+    {
+      "group": "API Reference",
+      "pages": [
+        "api-reference/introduction",
+        {
+          "group": "Cobranças",
+          "pages": [
+            "api-reference/charges/create",
+            "api-reference/charges/get",
+            "api-reference/charges/list"
+          ]
+        },
+        {
+          "group": "Saldo",
+          "pages": [
+            "api-reference/balance/get"
+          ]
+        },
+        {
+          "group": "Webhooks",
+          "pages": [
+            "api-reference/webhooks/create",
+            "api-reference/webhooks/list",
+            "api-reference/webhooks/delete"
+          ]
+        },
+        {
+          "group": "API Keys",
+          "pages": [
+            "api-reference/keys/create",
+            "api-reference/keys/list",
+            "api-reference/keys/revoke"
+          ]
+        }
+      ]
+    },
+    {
+      "group": "Integrações",
+      "pages": [
+        "integrations/javascript",
+        "integrations/php",
+        "integrations/python",
+        "integrations/webhook-handler"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "website": "https://appzucropay.com"
+  },
+  "api": {
+    "baseUrl": "https://api.appzucropay.com",
+    "auth": {
+      "method": "key",
+      "name": "X-API-Key"
+    }
+  }
+}

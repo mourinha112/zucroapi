@@ -1,0 +1,90 @@
+---
+title: 'Listar Cobranças'
+api: 'GET https://api.appzucropay.com/api/v1/charges'
+description: 'Lista todas as cobranças com filtros opcionais'
+---
+
+## Query Parameters
+
+<ParamField query="status" type="string">
+  Filtrar por status: `PENDING`, `RECEIVED`, `OVERDUE`, `REFUNDED`
+</ParamField>
+
+<ParamField query="billing_type" type="string">
+  Filtrar por tipo: `PIX`, `CREDIT_CARD`, `BOLETO`
+</ParamField>
+
+<ParamField query="limit" type="number" default="50">
+  Número máximo de resultados (máx: 100)
+</ParamField>
+
+<ParamField query="offset" type="number" default="0">
+  Offset para paginação
+</ParamField>
+
+## Response
+
+<ResponseField name="object" type="string">
+  Sempre `list`
+</ResponseField>
+
+<ResponseField name="data" type="array">
+  Array de cobranças
+</ResponseField>
+
+<ResponseField name="total" type="number">
+  Total de cobranças encontradas
+</ResponseField>
+
+<ResponseField name="has_more" type="boolean">
+  Se há mais resultados além do limit
+</ResponseField>
+
+<RequestExample>
+
+```bash cURL
+curl -X GET "https://api.appzucropay.com/api/v1/charges?status=RECEIVED&limit=10" \
+  -H "X-API-Key: zp_sua_api_key_aqui"
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.appzucropay.com/api/v1/charges?status=RECEIVED&limit=10', {
+  headers: {
+    'X-API-Key': 'zp_sua_api_key_aqui'
+  }
+});
+
+const data = await response.json();
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json Response
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "abc123-def456",
+      "billing_type": "PIX",
+      "status": "RECEIVED",
+      "value": 99.90,
+      "description": "Produto A",
+      "created_at": "2026-01-20T13:00:00.000Z"
+    },
+    {
+      "id": "xyz789-uvw123",
+      "billing_type": "CREDIT_CARD",
+      "status": "RECEIVED",
+      "value": 149.90,
+      "description": "Produto B",
+      "created_at": "2026-01-19T10:30:00.000Z"
+    }
+  ],
+  "total": 156,
+  "has_more": true
+}
+```
+
+</ResponseExample>

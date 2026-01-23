@@ -1,0 +1,329 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                      String    @db.VarChar(200)
+  email                     String    @unique @db.VarChar(200)
+  password_hash             String    @db.VarChar(255)
+  cpf_cnpj                  String?   @db.VarChar(20)
+  phone                     String?   @db.VarChar(20)
+  avatar                    String?
+  asaas_customer_id         String?   @db.VarChar(100)
+  asaas_api_key             String?
+  balance                   Decimal   @default(0) @db.Decimal(10, 2)
+  reserved_balance          Decimal   @default(0) @db.Decimal(10, 2)
+  account_status            String    @default("pending") @db.VarChar(20)
+  account_status_reason     String?
+  account_reviewed_by       String?   @db.Uuid
+  account_reviewed_at       DateTime? @db.Timestamptz
+  identity_verified         Boolean   @default(false)
+  efi_customer_id           String?   @db.VarChar(100)
+  verification_status       String    @default("pending") @db.VarChar(20)
+  verification_submitted_at DateTime? @db.Timestamptz
+  verification_reviewed_at  DateTime? @db.Timestamptz
+  verification_reviewed_by  String?   @db.Uuid
+  verification_rejection_reason String?
+  created_at                DateTime  @default(now()) @db.Timestamptz
+  updated_at                DateTime  @default(now()) @db.Timestamptz
+
+  // Relations
+  products           Product[]
+  payments           Payment[]
+  payment_links      PaymentLink[]
+  transactions       Transaction[]
+  withdrawals        Withdrawal[]
+  api_keys           ApiKey[]
+  webhooks           Webhook[]
+  push_subscriptions PushSubscription[]
+  balance_reserves   BalanceReserve[]
+  user_verification  UserVerification?
+  custom_rates       UserCustomRate?
+
+  @@map("users")
+}
+
+model AdminCredential {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email         String    @unique @db.VarChar(200)
+  password_hash String    @db.VarChar(255)
+  name          String?   @default("Administrador") @db.VarChar(200)
+  role          String    @default("admin") @db.VarChar(50)
+  is_active     Boolean   @default(true)
+  last_login    DateTime? @db.Timestamptz
+  permissions   Json      @default("[]")
+  created_at    DateTime  @default(now()) @db.Timestamptz
+  updated_at    DateTime  @default(now()) @db.Timestamptz
+
+  @@map("admin_credentials")
+}
+
+model Product {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id               String    @db.Uuid
+  name                  String    @db.VarChar(200)
+  description           String?
+  price                 Decimal   @db.Decimal(10, 2)
+  image_url             String?
+  stock                 Int?
+  active                Boolean   @default(true)
+  marketplace_enabled   Boolean   @default(false)
+  commission_percentage Decimal   @default(30) @db.Decimal(5, 2)
+  fee_payer             String    @default("seller") @db.VarChar(10)
+  created_at            DateTime  @default(now()) @db.Timestamptz
+  updated_at            DateTime  @default(now()) @db.Timestamptz
+
+  user          User           @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  payment_links PaymentLink[]
+
+  @@map("products")
+}
+
+model Payment {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id         String    @db.Uuid
+  customer_id     String?   @db.Uuid
+  asaas_payment_id String?  @db.VarChar(100)
+  efi_txid        String?   @db.VarChar(100)
+  efi_charge_id   String?   @db.VarChar(100)
+  billing_type    String    @db.VarChar(20)
+  status          String    @db.VarChar(20)
+  value           Decimal   @db.Decimal(10, 2)
+  net_value       Decimal   @default(0) @db.Decimal(10, 2)
+  description     String?
+  due_date        DateTime? @db.Date
+  payment_date    DateTime? @db.Timestamptz
+  invoice_url     String?
+  bank_slip_url   String?
+  pix_qrcode      String?
+  pix_copy_paste  String?
+  metadata        Json      @default("{}")
+  payment_link_id String?   @db.Uuid
+  created_at      DateTime  @default(now()) @db.Timestamptz
+  updated_at      DateTime  @default(now()) @db.Timestamptz
+
+  user         User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  payment_link PaymentLink? @relation(fields: [payment_link_id], references: [id])
+
+  @@map("payments")
+}
+
+model PaymentLink {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id              String    @db.Uuid
+  product_id           String?   @db.Uuid
+  asaas_payment_link_id String?  @db.VarChar(100)
+  asaas_link_url       String?
+  efi_charge_id        String?   @db.VarChar(100)
+  name                 String    @db.VarChar(200)
+  description          String?
+  amount               Decimal   @db.Decimal(10, 2)
+  billing_type         String    @default("UNDEFINED") @db.VarChar(20)
+  default_billing_type String    @default("PIX") @db.VarChar(20)
+  active               Boolean   @default(true)
+  clicks               Int       @default(0)
+  payments_count       Int       @default(0)
+  total_received       Decimal   @default(0) @db.Decimal(10, 2)
+  created_at           DateTime  @default(now()) @db.Timestamptz
+  updated_at           DateTime  @default(now()) @db.Timestamptz
+
+  user     User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  product  Product?  @relation(fields: [product_id], references: [id])
+  payments Payment[]
+
+  @@map("payment_links")
+}
+
+model Transaction {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id          String    @db.Uuid
+  type             String    @db.VarChar(50)
+  amount           Decimal   @db.Decimal(10, 2)
+  status           String    @db.VarChar(20)
+  description      String?
+  asaas_payment_id String?   @db.VarChar(100)
+  asaas_transfer_id String?  @db.VarChar(100)
+  efi_txid         String?   @db.VarChar(100)
+  efi_transfer_id  String?   @db.VarChar(100)
+  efi_charge_id    String?   @db.VarChar(100)
+  metadata         Json      @default("{}")
+  created_at       DateTime  @default(now()) @db.Timestamptz
+  updated_at       DateTime  @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("transactions")
+}
+
+model Withdrawal {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id          String    @db.Uuid
+  amount           Decimal   @db.Decimal(10, 2)
+  status           String    @default("pending") @db.VarChar(20)
+  withdrawal_type  String    @default("pix") @db.VarChar(20)
+  pix_key          String?   @db.VarChar(100)
+  pix_key_type     String?   @db.VarChar(20)
+  bank_code        String?   @db.VarChar(10)
+  bank_name        String?   @db.VarChar(100)
+  agency           String?   @db.VarChar(10)
+  account_number   String?   @db.VarChar(20)
+  account_digit    String?   @db.VarChar(2)
+  account_type     String?   @db.VarChar(20)
+  holder_name      String?   @db.VarChar(200)
+  holder_document  String?   @db.VarChar(20)
+  requested_at     DateTime  @default(now()) @db.Timestamptz
+  reviewed_at      DateTime? @db.Timestamptz
+  reviewed_by      String?   @db.Uuid
+  completed_at     DateTime? @db.Timestamptz
+  rejection_reason String?
+  admin_notes      String?
+  created_at       DateTime  @default(now()) @db.Timestamptz
+  updated_at       DateTime  @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("withdrawals")
+}
+
+model ApiKey {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id      String    @db.Uuid
+  api_key      String    @unique @db.VarChar(100)
+  name         String?   @db.VarChar(100)
+  status       String    @default("active") @db.VarChar(20)
+  last_used_at DateTime? @db.Timestamptz
+  created_at   DateTime  @default(now()) @db.Timestamptz
+  updated_at   DateTime  @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("api_keys")
+}
+
+model Webhook {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id         String    @db.Uuid
+  url             String
+  secret          String?   @db.VarChar(100)
+  events          Json      @default("[]")
+  status          String    @default("active") @db.VarChar(20)
+  last_success_at DateTime? @db.Timestamptz
+  last_failure_at DateTime? @db.Timestamptz
+  failure_count   Int       @default(0)
+  created_at      DateTime  @default(now()) @db.Timestamptz
+  updated_at      DateTime  @default(now()) @db.Timestamptz
+
+  user User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  logs WebhookLog[]
+
+  @@map("webhooks")
+}
+
+model WebhookLog {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  webhook_id    String   @db.Uuid
+  event_type    String   @db.VarChar(50)
+  payload       Json
+  response_code Int?
+  response_body String?
+  success       Boolean  @default(false)
+  created_at    DateTime @default(now()) @db.Timestamptz
+
+  webhook Webhook @relation(fields: [webhook_id], references: [id], onDelete: Cascade)
+
+  @@map("webhook_logs")
+}
+
+model PushSubscription {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String   @db.Uuid
+  endpoint   String
+  p256dh     String
+  auth       String
+  user_agent String?
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, endpoint])
+  @@map("push_subscriptions")
+}
+
+model BalanceReserve {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id         String    @db.Uuid
+  payment_id      String?   @db.Uuid
+  original_amount Decimal   @db.Decimal(10, 2)
+  reserve_amount  Decimal   @db.Decimal(10, 2)
+  released_amount Decimal   @default(0) @db.Decimal(10, 2)
+  status          String    @default("held") @db.VarChar(20)
+  release_date    DateTime? @db.Timestamptz
+  released_at     DateTime? @db.Timestamptz
+  description     String?
+  created_at      DateTime  @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("balance_reserves")
+}
+
+model UserVerification {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id          String    @unique @db.Uuid
+  document_type    String    @db.VarChar(20)
+  document_front_url String?
+  document_back_url  String?
+  selfie_url       String?
+  full_name        String?   @db.VarChar(200)
+  birth_date       DateTime? @db.Date
+  document_number  String?   @db.VarChar(20)
+  status           String    @default("pending") @db.VarChar(20)
+  reviewed_at      DateTime? @db.Timestamptz
+  reviewed_by      String?   @db.Uuid
+  rejection_reason String?
+  admin_notes      String?
+  created_at       DateTime  @default(now()) @db.Timestamptz
+  updated_at       DateTime  @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("user_verifications")
+}
+
+model UserCustomRate {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id        String   @unique @db.Uuid
+  pix_rate       Decimal? @db.Decimal(5, 2)
+  card_rate      Decimal? @db.Decimal(5, 2)
+  boleto_rate    Decimal? @db.Decimal(5, 2)
+  withdrawal_fee Decimal? @db.Decimal(10, 2)
+  created_by     String?  @db.Uuid
+  notes          String?
+  created_at     DateTime @default(now()) @db.Timestamptz
+  updated_at     DateTime @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("user_custom_rates")
+}
+
+model AdminLog {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  admin_id    String?  @db.Uuid
+  action      String   @db.VarChar(100)
+  target_type String?  @db.VarChar(50)
+  target_id   String?  @db.Uuid
+  details     Json?
+  ip_address  String?  @db.VarChar(50)
+  user_agent  String?
+  created_at  DateTime @default(now()) @db.Timestamptz
+
+  @@map("admin_logs")
+}

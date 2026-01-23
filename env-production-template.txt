@@ -1,0 +1,36 @@
+# ===========================================
+# ZUCROPAY API - Configuração de Produção
+# ===========================================
+# Copie este arquivo para .env no servidor
+
+# Servidor
+PORT=3000
+NODE_ENV=production
+
+# Banco de Dados PostgreSQL
+# Como o PostgreSQL está no mesmo VPS, use localhost
+DATABASE_URL="postgresql://USUARIO:SENHA@localhost:5432/zucropay?schema=public"
+
+# JWT (IMPORTANTE: Gere uma chave segura!)
+# Para gerar: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+JWT_SECRET=sua_chave_jwt_super_secreta_aqui
+JWT_EXPIRES_IN=7d
+
+# Redis (está no mesmo VPS)
+REDIS_URL=redis://localhost:6379
+
+# Gateway de Pagamento EFI (Gerencianet)
+EFI_CLIENT_ID=seu_client_id
+EFI_CLIENT_SECRET=seu_client_secret
+EFI_PIX_KEY=sua_chave_pix
+EFI_CERTIFICATE_BASE64=certificado_em_base64
+EFI_SANDBOX=false
+
+# Push Notifications (VAPID)
+# Para gerar: npx web-push generate-vapid-keys
+VAPID_PUBLIC_KEY=sua_chave_publica_vapid
+VAPID_PRIVATE_KEY=sua_chave_privada_vapid
+VAPID_EMAIL=mailto:seu@email.com
+
+# Frontend URL (para CORS - use o domínio da Vercel)
+FRONTEND_URL=https://seu-projeto.vercel.app

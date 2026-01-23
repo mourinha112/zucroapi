@@ -1,0 +1,124 @@
+---
+title: 'Taxas e Tarifas'
+description: 'Entenda como funcionam as taxas da ZucroPay'
+---
+
+## Visão Geral
+
+A ZucroPay cobra uma taxa por transação que varia conforme o método de pagamento. Não há mensalidade ou taxa de setup.
+
+## Taxas por Método
+
+<CardGroup cols={3}>
+  <Card title="PIX" icon="bolt">
+    **5,99%** + R$ 2,50 fixo
+    
+    Confirmação instantânea
+  </Card>
+  <Card title="Cartão de Crédito" icon="credit-card">
+    **5,99%** + R$ 2,50 fixo
+    
+    + 2,49% por parcela
+  </Card>
+  <Card title="Boleto" icon="barcode">
+    **5,99%** + R$ 2,50 fixo
+    
+    Compensação em 1-3 dias
+  </Card>
+</CardGroup>
+
+## Como Funciona
+
+### Exemplo PIX - R$ 100,00
+
+| Item | Valor |
+|------|-------|
+| Valor da venda | R$ 100,00 |
+| Taxa percentual (5,99%) | - R$ 5,99 |
+| Taxa fixa | - R$ 2,50 |
+| Reserva (5%) | - R$ 4,58 |
+| **Você recebe** | **R$ 86,93** |
+
+<Note>
+  A reserva de 5% é liberada após 30 dias automaticamente.
+</Note>
+
+### Exemplo Cartão - R$ 100,00 em 3x
+
+| Item | Valor |
+|------|-------|
+| Valor da venda | R$ 100,00 |
+| Taxa percentual (5,99%) | - R$ 5,99 |
+| Taxa fixa | - R$ 2,50 |
+| Taxa de parcelamento (3 × 2,49%) | - R$ 7,47 |
+| Reserva (5%) | - R$ 4,20 |
+| **Você recebe** | **R$ 79,84** |
+
+## Quem Paga a Taxa?
+
+Você pode escolher quem paga a taxa ao criar o produto:
+
+### Vendedor paga (Padrão)
+
+A taxa é descontada do valor que você recebe. O cliente paga exatamente o valor do produto.
+
+```javascript
+// Produto de R$ 100
+// Cliente paga: R$ 100
+// Você recebe: ~R$ 91 (após taxas)
+```
+
+### Comprador paga
+
+A taxa é adicionada ao valor final. O cliente paga mais, mas você recebe o valor integral.
+
+```javascript
+// Produto de R$ 100 com taxa do comprador
+// Cliente paga: ~R$ 109 (valor + taxas)
+// Você recebe: ~R$ 100
+```
+
+<Info>
+  Configure isso ao criar cada produto no Dashboard ou via API.
+</Info>
+
+## Reserva de Segurança
+
+5% de cada venda fica reservado por 30 dias como garantia contra:
+
+- Chargebacks
+- Estornos
+- Disputas
+
+Após 30 dias, o valor é **automaticamente liberado** para seu saldo disponível.
+
+### Acompanhando Reservas
+
+No Dashboard, vá em **Finanças** para ver:
+
+- Saldo disponível
+- Saldo em reserva
+- Próximas liberações
+
+## Taxas Customizadas
+
+Parceiros com alto volume podem negociar taxas especiais. Entre em contato:
+
+- **Email:** parcerias@appzucropay.com
+- **Volume mínimo:** R$ 50.000/mês
+
+## Calculadora de Taxas
+
+Use o simulador no Dashboard para calcular quanto você receberá:
+
+1. Acesse **Produtos** no Dashboard
+2. Ao criar/editar um produto, veja a simulação em tempo real
+3. Escolha quem paga a taxa
+
+<Card
+  title="Acessar Dashboard"
+  icon="calculator"
+  href="https://dashboard.appzucropay.com"
+>
+  Simule suas taxas agora
+</Card>

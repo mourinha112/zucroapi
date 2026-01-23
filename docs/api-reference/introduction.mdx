@@ -1,0 +1,91 @@
+---
+title: 'API Reference'
+description: 'Documentação completa da API ZucroPay'
+---
+
+## URL Base
+
+Todas as requisições devem ser feitas para:
+
+```
+https://api.appzucropay.com
+```
+
+## Autenticação
+
+Todas as requisições (exceto webhooks recebidos) devem incluir sua API Key:
+
+```bash
+X-API-Key: zp_sua_api_key_aqui
+```
+
+Veja mais em [Autenticação](/authentication).
+
+## Endpoints Disponíveis
+
+### Cobranças
+
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| `POST` | `/api/v1/charges` | Criar nova cobrança |
+| `GET` | `/api/v1/charges/:id` | Consultar cobrança |
+| `GET` | `/api/v1/charges` | Listar cobranças |
+
+### Saldo
+
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| `GET` | `/api/v1/balance` | Consultar saldo |
+
+### Webhooks
+
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| `POST` | `/api/webhooks` | Criar webhook |
+| `GET` | `/api/webhooks` | Listar webhooks |
+| `DELETE` | `/api/webhooks/:id` | Deletar webhook |
+
+### API Keys
+
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| `POST` | `/api/v1/keys` | Criar API Key |
+| `GET` | `/api/v1/keys` | Listar API Keys |
+| `DELETE` | `/api/v1/keys/:id` | Revogar API Key |
+
+## Formato de Resposta
+
+Todas as respostas são em JSON:
+
+```json
+{
+  "id": "abc123...",
+  "object": "charge",
+  ...
+}
+```
+
+## Códigos de Status
+
+| Código | Descrição |
+|--------|-----------|
+| `200` | Sucesso |
+| `201` | Criado com sucesso |
+| `400` | Requisição inválida |
+| `401` | Não autenticado |
+| `403` | Sem permissão |
+| `404` | Não encontrado |
+| `429` | Rate limit excedido |
+| `500` | Erro interno |
+
+## Erros
+
+Erros retornam o seguinte formato:
+
+```json
+{
+  "error": "Mensagem de erro",
+  "code": "ERROR_CODE",
+  "details": {} // opcional
+}
+```

@@ -1,0 +1,224 @@
+---
+title: 'Webhooks'
+description: 'Receba notificações em tempo real sobre pagamentos'
+---
+
+## O que são Webhooks?
+
+Webhooks são notificações HTTP enviadas automaticamente quando eventos acontecem na sua conta. Com webhooks, você não precisa ficar consultando o status das cobranças - a ZucroPay avisa você quando algo acontece.
+
+## Eventos Disponíveis
+
+| Evento | Descrição |
+|--------|-----------|
+| `payment.received` | Pagamento confirmado |
+| `payment.refunded` | Pagamento estornado |
+| `payment.overdue` | Pagamento vencido |
+| `withdrawal.completed` | Saque realizado |
+| `withdrawal.rejected` | Saque rejeitado |
+
+## Configurando Webhooks
+
+### Pelo Dashboard
+
+1. Acesse [Integrações](https://dashboard.appzucropay.com/integracoes)
+2. Vá na aba **Webhooks**
+3. Clique em **Criar Webhook**
+4. Informe a URL e selecione os eventos
+
+### Pela API
+
+```bash
+curl -X POST https://api.appzucropay.com/api/webhooks \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer SEU_TOKEN" \
+  -d '{
+    "url": "https://seusite.com/webhook",
+    "events": ["payment.received", "payment.refunded"]
+  }'
+```
+
+## Formato do Payload
+
+Quando um evento ocorre, enviamos um POST para sua URL:
+
+```json
+{
+  "event": "payment.received",
+  "data": {
+    "payment_id": "abc123-def456",
+    "value": 99.90,
+    "net_value": 93.91,
+    "status": "RECEIVED",
+    "billing_type": "PIX",
+    "customer": {
+      "name": "João Silva",
+      "email": "joao@email.com"
+    }
+  },
+  "timestamp": "2026-01-20T13:05:00.000Z"
+}
+```
+
+## Headers Enviados
+
+| Header | Descrição |
+|--------|-----------|
+| `Content-Type` | `application/json` |
+| `X-Webhook-Event` | Nome do evento |
+| `X-Webhook-Secret` | Secret configurado (se houver) |
+
+## Implementando seu Webhook
+
+<CodeGroup>
+
+```javascript Node.js/Express
+const express = require('express');
+const app = express();
+
+app.use(express.json());
+
+app.post('/webhook', (req, res) => {
+  const { event, data, timestamp } = req.body;
+  const secret = req.headers['x-webhook-secret'];
+  
+  // Valide o secret se configurado
+  if (secret && secret !== process.env.WEBHOOK_SECRET) {
+    return res.status(401).send('Invalid secret');
+  }
+  
+  switch (event) {
+    case 'payment.received':
+      console.log('Pagamento recebido!', data.payment_id);
+      // Liberar produto, enviar email, etc.
+      liberarProduto(data);
+      break;
+      
+    case 'payment.refunded':
+      console.log('Pagamento estornado!', data.payment_id);
+      // Reverter acesso, notificar, etc.
+      break;
+  }
+  
+  // IMPORTANTE: Sempre retorne 200
+  res.status(200).send('OK');
+});
+
+app.listen(3000);
+```
+
+```php PHP
+<?php
+// webhook.php
+
+$payload = file_get_contents('php://input');
+$data = json_decode($payload, true);
+
+// Validar secret
+$receivedSecret = $_SERVER['HTTP_X_WEBHOOK_SECRET'] ?? '';
+if ($receivedSecret !== getenv('WEBHOOK_SECRET')) {
+    http_response_code(401);
+    exit('Invalid secret');
+}
+
+// Processar evento
+switch ($data['event']) {
+    case 'payment.received':
+        $paymentId = $data['data']['payment_id'];
+        // Liberar produto
+        liberarProduto($paymentId);
+        
+        // Enviar email
+        enviarEmailConfirmacao($data['data']['customer']['email']);
+        break;
+        
+    case 'payment.refunded':
+        // Reverter acesso
+        revogarAcesso($data['data']['payment_id']);
+        break;
+}
+
+// IMPORTANTE: Sempre retorne 200
+http_response_code(200);
+echo json_encode(['received' => true]);
+```
+
+```python Python/Flask
+from flask import Flask, request, jsonify
+import os
+
+app = Flask(__name__)
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    data = request.json
+    secret = request.headers.get('X-Webhook-Secret')
+    
+    # Validar secret
+    if secret != os.environ.get('WEBHOOK_SECRET'):
+        return jsonify({'error': 'Invalid secret'}), 401
+    
+    event = data.get('event')
+    payload = data.get('data')
+    
+    if event == 'payment.received':
+        print(f"Pagamento recebido: {payload['payment_id']}")
+        # Liberar produto
+        liberar_produto(payload)
+        
+    elif event == 'payment.refunded':
+        print(f"Pagamento estornado: {payload['payment_id']}")
+        # Reverter acesso
+    
+    # IMPORTANTE: Sempre retorne 200
+    return jsonify({'received': True}), 200
+
+if __name__ == '__main__':
+    app.run(port=5000)
+```
+
+</CodeGroup>
+
+## Boas Práticas
+
+<AccordionGroup>
+  <Accordion icon="clock" title="Responda rápido">
+    Seu endpoint deve responder em até **5 segundos** com status `200`. Se precisar fazer processamento demorado, salve o evento e processe em background.
+  </Accordion>
+  
+  <Accordion icon="repeat" title="Seja idempotente">
+    Podemos reenviar webhooks em caso de falha. Seu código deve ser capaz de processar o mesmo evento múltiplas vezes sem duplicar ações.
+  </Accordion>
+  
+  <Accordion icon="shield" title="Valide o secret">
+    Configure um secret e valide em cada webhook recebido para garantir que a requisição veio da ZucroPay.
+  </Accordion>
+  
+  <Accordion icon="save" title="Registre tudo">
+    Salve os webhooks recebidos em um log para debugging e auditoria.
+  </Accordion>
+</AccordionGroup>
+
+## Retentativas
+
+Se seu endpoint retornar erro (status != 2xx) ou timeout, tentamos novamente:
+
+| Tentativa | Intervalo |
+|-----------|-----------|
+| 1ª | Imediata |
+| 2ª | 5 segundos |
+| 3ª | 30 segundos |
+
+Após 3 tentativas falhadas, o webhook é marcado como falho no log.
+
+## Testando Webhooks
+
+Use ferramentas como [webhook.site](https://webhook.site) ou [ngrok](https://ngrok.com) para testar em desenvolvimento:
+
+```bash
+# Exponha seu localhost
+ngrok http 3000
+
+# Use a URL gerada como endpoint do webhook
+# https://abc123.ngrok.io/webhook
+```

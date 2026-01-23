@@ -1,0 +1,184 @@
+---
+title: 'Criar Cobrança'
+api: 'POST https://api.appzucropay.com/api/v1/charges'
+description: 'Cria uma nova cobrança PIX, Cartão ou link de pagamento'
+---
+
+## Request
+
+<ParamField body="billing_type" type="string" required>
+  Tipo de cobrança: `PIX`, `CREDIT_CARD` ou `UNDEFINED` (link de pagamento)
+</ParamField>
+
+<ParamField body="value" type="number" required>
+  Valor da cobrança em reais (ex: 99.90)
+</ParamField>
+
+<ParamField body="description" type="string">
+  Descrição da cobrança
+</ParamField>
+
+<ParamField body="customer" type="object">
+  Dados do cliente
+  <Expandable title="properties">
+    <ParamField body="name" type="string" required>
+      Nome do cliente
+    </ParamField>
+    <ParamField body="email" type="string">
+      Email do cliente
+    </ParamField>
+    <ParamField body="cpf_cnpj" type="string">
+      CPF ou CNPJ (apenas números)
+    </ParamField>
+    <ParamField body="phone" type="string">
+      Telefone
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="external_reference" type="string">
+  Referência externa (ID do seu sistema)
+</ParamField>
+
+<ParamField body="callback_url" type="string">
+  URL para receber notificações de pagamento
+</ParamField>
+
+<ParamField body="due_date" type="string">
+  Data de vencimento (formato: YYYY-MM-DD)
+</ParamField>
+
+## Response
+
+<ResponseField name="id" type="string">
+  ID único da cobrança
+</ResponseField>
+
+<ResponseField name="object" type="string">
+  Sempre `charge`
+</ResponseField>
+
+<ResponseField name="billing_type" type="string">
+  Tipo da cobrança
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Status: `PENDING`, `RECEIVED`, `OVERDUE`, `REFUNDED`
+</ResponseField>
+
+<ResponseField name="value" type="number">
+  Valor bruto
+</ResponseField>
+
+<ResponseField name="net_value" type="number">
+  Valor líquido (após taxas)
+</ResponseField>
+
+<ResponseField name="platform_fee" type="number">
+  Taxa da plataforma
+</ResponseField>
+
+<ResponseField name="pix" type="object">
+  Dados do PIX (apenas se billing_type = PIX)
+  <Expandable title="properties">
+    <ResponseField name="txid" type="string">
+      ID da transação PIX
+    </ResponseField>
+    <ResponseField name="qr_code" type="string">
+      Imagem do QR Code em base64
+    </ResponseField>
+    <ResponseField name="copy_paste" type="string">
+      Código PIX copia e cola
+    </ResponseField>
+    <ResponseField name="expires_at" type="string">
+      Data de expiração
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="checkout_url" type="string">
+  URL do checkout (apenas se billing_type = UNDEFINED)
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  Data de criação (ISO 8601)
+</ResponseField>
+
+<RequestExample>
+
+```bash cURL
+curl -X POST https://api.appzucropay.com/api/v1/charges \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: zp_sua_api_key_aqui" \
+  -d '{
+    "billing_type": "PIX",
+    "value": 99.90,
+    "description": "Produto Premium",
+    "customer": {
+      "name": "João Silva",
+      "email": "joao@email.com",
+      "cpf_cnpj": "12345678900"
+    },
+    "external_reference": "PEDIDO-123"
+  }'
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.appzucropay.com/api/v1/charges', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-API-Key': 'zp_sua_api_key_aqui'
+  },
+  body: JSON.stringify({
+    billing_type: 'PIX',
+    value: 99.90,
+    description: 'Produto Premium',
+    customer: {
+      name: 'João Silva',
+      email: 'joao@email.com',
+      cpf_cnpj: '12345678900'
+    },
+    external_reference: 'PEDIDO-123'
+  })
+});
+
+const data = await response.json();
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json PIX
+{
+  "id": "abc123-def456-ghi789",
+  "object": "charge",
+  "billing_type": "PIX",
+  "status": "PENDING",
+  "value": 99.90,
+  "net_value": 93.91,
+  "platform_fee": 5.99,
+  "pix": {
+    "txid": "zp1234567890abcdefghijklmnop",
+    "qr_code": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
+    "copy_paste": "00020126580014br.gov.bcb.pix0136...",
+    "expires_at": "2026-01-20T14:00:00.000Z"
+  },
+  "created_at": "2026-01-20T13:00:00.000Z"
+}
+```
+
+```json Link de Pagamento
+{
+  "id": "xyz789-abc123",
+  "object": "payment_link",
+  "billing_type": "UNDEFINED",
+  "status": "ACTIVE",
+  "value": 99.90,
+  "checkout_url": "https://dashboard.appzucropay.com/checkout/xyz789-abc123",
+  "created_at": "2026-01-20T13:00:00.000Z"
+}
+```
+
+</ResponseExample>

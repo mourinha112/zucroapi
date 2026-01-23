@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  # API Principal
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zucropay-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=${DATABASE_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
+      - REDIS_URL=redis://redis:6379
+      - EFI_CLIENT_ID=${EFI_CLIENT_ID}
+      - EFI_CLIENT_SECRET=${EFI_CLIENT_SECRET}
+      - EFI_CERTIFICATE_BASE64=${EFI_CERTIFICATE_BASE64}
+      - EFI_PIX_KEY=${EFI_PIX_KEY}
+      - EFI_SANDBOX=${EFI_SANDBOX:-false}
+      - FRONTEND_URL=${FRONTEND_URL}
+    depends_on:
+      - redis
+    networks:
+      - zucropay-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Redis para cache e filas
+  redis:
+    image: redis:7-alpine
+    container_name: zucropay-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - zucropay-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Nginx Reverse Proxy (opcional, pode usar separado)
+  nginx:
+    image: nginx:alpine
+    container_name: zucropay-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/certbot:/var/www/certbot:ro
+    depends_on:
+      - api
+    networks:
+      - zucropay-network
+
+networks:
+  zucropay-network:
+    driver: bridge
+
+volumes:
+  redis-data:

@@ -1,0 +1,160 @@
+---
+title: 'Autenticação'
+description: 'Como autenticar suas requisições na API ZucroPay'
+---
+
+## API Keys
+
+A ZucroPay usa **API Keys** para autenticar requisições. Você pode gerenciar suas API Keys no [Dashboard](https://dashboard.appzucropay.com/integracoes).
+
+### Formato da API Key
+
+As API Keys seguem o formato:
+
+```
+zp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+<Warning>
+  **Nunca compartilhe sua API Key!** Ela dá acesso completo à sua conta. Se você suspeitar que ela foi comprometida, revogue-a imediatamente no Dashboard.
+</Warning>
+
+## Como Autenticar
+
+Existem duas formas de enviar sua API Key:
+
+### Header X-API-Key (Recomendado)
+
+```bash
+curl -X GET https://api.appzucropay.com/api/v1/charges \
+  -H "X-API-Key: zp_sua_api_key_aqui"
+```
+
+### Header Authorization
+
+```bash
+curl -X GET https://api.appzucropay.com/api/v1/charges \
+  -H "Authorization: Bearer zp_sua_api_key_aqui"
+```
+
+## Gerenciando API Keys
+
+### Criar uma API Key
+
+<Steps>
+  <Step title="Acesse o Dashboard">
+    Faça login em [dashboard.appzucropay.com](https://dashboard.appzucropay.com)
+  </Step>
+  <Step title="Vá em Integrações">
+    No menu lateral, clique em **Integrações**
+  </Step>
+  <Step title="Crie a Key">
+    Clique em **Criar Nova API Key** e dê um nome descritivo
+  </Step>
+  <Step title="Copie e guarde">
+    Copie sua API Key e guarde em local seguro. Ela não será exibida novamente!
+  </Step>
+</Steps>
+
+### Revogar uma API Key
+
+Se você precisa revogar uma API Key (por segurança ou porque não está mais usando):
+
+1. Vá em **Integrações** no Dashboard
+2. Encontre a API Key que deseja revogar
+3. Clique no botão **Revogar**
+4. Confirme a ação
+
+<Info>
+  API Keys revogadas param de funcionar imediatamente. Certifique-se de atualizar suas integrações antes de revogar.
+</Info>
+
+## Erros de Autenticação
+
+### 401 - API Key não fornecida
+
+```json
+{
+  "error": "API Key não fornecida",
+  "code": "API_KEY_MISSING"
+}
+```
+
+**Solução:** Adicione o header `X-API-Key` com sua API Key.
+
+### 401 - API Key inválida
+
+```json
+{
+  "error": "API Key inválida ou inativa",
+  "code": "API_KEY_INVALID"
+}
+```
+
+**Solução:** Verifique se a API Key está correta e não foi revogada.
+
+### 403 - Conta suspensa
+
+```json
+{
+  "error": "Conta suspensa ou bloqueada",
+  "code": "ACCOUNT_SUSPENDED"
+}
+```
+
+**Solução:** Entre em contato com o suporte.
+
+## Rate Limiting
+
+A API possui limites de requisições para garantir estabilidade:
+
+| Endpoint | Limite | Janela |
+|----------|--------|--------|
+| Geral | 100 req | 1 min |
+| Criação de cobranças | 60 req | 1 min |
+| Webhooks | 500 req | 1 min |
+
+Quando você excede o limite, a API retorna status **429**:
+
+```json
+{
+  "error": "Muitas requisições. Tente novamente em alguns minutos.",
+  "code": "RATE_LIMIT_EXCEEDED",
+  "retryAfter": 45
+}
+```
+
+### Headers de Rate Limit
+
+Cada resposta inclui headers informativos:
+
+```
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 95
+X-RateLimit-Reset: 1705761300
+```
+
+## Boas Práticas
+
+<CardGroup cols={2}>
+  <Card icon="shield" title="Segurança">
+    - Nunca exponha a API Key no frontend
+    - Use variáveis de ambiente
+    - Revogue keys comprometidas imediatamente
+  </Card>
+  <Card icon="rotate" title="Rotação">
+    - Crie novas keys periodicamente
+    - Use keys diferentes para dev/prod
+    - Mantenha apenas keys em uso
+  </Card>
+  <Card icon="code" title="Implementação">
+    - Trate erros 401/403 adequadamente
+    - Implemente retry com backoff para 429
+    - Log de uso para auditoria
+  </Card>
+  <Card icon="lock" title="Armazenamento">
+    - Use secrets managers (AWS Secrets, Vault)
+    - Nunca commite keys no código
+    - Criptografe em repouso
+  </Card>
+</CardGroup>

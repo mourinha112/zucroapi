@@ -1,0 +1,222 @@
+---
+title: 'Início Rápido'
+description: 'Comece a receber pagamentos em 5 minutos'
+---
+
+## Passo 1: Criar sua conta
+
+Primeiro, crie sua conta no dashboard:
+
+<Card
+  title="Criar Conta"
+  icon="user-plus"
+  href="https://dashboard.appzucropay.com/register"
+>
+  Cadastre-se gratuitamente
+</Card>
+
+## Passo 2: Gerar sua API Key
+
+Após criar sua conta, vá em **Integrações** e gere sua API Key:
+
+1. Acesse o [Dashboard](https://dashboard.appzucropay.com)
+2. Vá em **Integrações** no menu lateral
+3. Clique em **Criar Nova API Key**
+4. Copie e guarde sua chave (ela não será exibida novamente!)
+
+<Warning>
+  **Importante:** Guarde sua API Key em local seguro. Ela não será exibida novamente após criada.
+</Warning>
+
+## Passo 3: Criar sua primeira cobrança
+
+Agora você pode criar sua primeira cobrança PIX:
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.appzucropay.com/api/v1/charges \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: zp_sua_api_key_aqui" \
+  -d '{
+    "billing_type": "PIX",
+    "value": 99.90,
+    "description": "Produto de Teste",
+    "customer": {
+      "name": "João Silva",
+      "email": "joao@email.com",
+      "cpf_cnpj": "12345678900"
+    }
+  }'
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.appzucropay.com/api/v1/charges', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-API-Key': 'zp_sua_api_key_aqui'
+  },
+  body: JSON.stringify({
+    billing_type: 'PIX',
+    value: 99.90,
+    description: 'Produto de Teste',
+    customer: {
+      name: 'João Silva',
+      email: 'joao@email.com',
+      cpf_cnpj: '12345678900'
+    }
+  })
+});
+
+const data = await response.json();
+console.log(data);
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    'https://api.appzucropay.com/api/v1/charges',
+    headers={
+        'Content-Type': 'application/json',
+        'X-API-Key': 'zp_sua_api_key_aqui'
+    },
+    json={
+        'billing_type': 'PIX',
+        'value': 99.90,
+        'description': 'Produto de Teste',
+        'customer': {
+            'name': 'João Silva',
+            'email': 'joao@email.com',
+            'cpf_cnpj': '12345678900'
+        }
+    }
+)
+
+print(response.json())
+```
+
+```php PHP
+<?php
+$curl = curl_init();
+
+curl_setopt_array($curl, [
+    CURLOPT_URL => 'https://api.appzucropay.com/api/v1/charges',
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_POST => true,
+    CURLOPT_HTTPHEADER => [
+        'Content-Type: application/json',
+        'X-API-Key: zp_sua_api_key_aqui'
+    ],
+    CURLOPT_POSTFIELDS => json_encode([
+        'billing_type' => 'PIX',
+        'value' => 99.90,
+        'description' => 'Produto de Teste',
+        'customer' => [
+            'name' => 'João Silva',
+            'email' => 'joao@email.com',
+            'cpf_cnpj' => '12345678900'
+        ]
+    ])
+]);
+
+$response = curl_exec($curl);
+curl_close($curl);
+
+print_r(json_decode($response, true));
+```
+
+</CodeGroup>
+
+## Resposta
+
+```json
+{
+  "id": "abc123-def456-ghi789",
+  "object": "charge",
+  "billing_type": "PIX",
+  "status": "PENDING",
+  "value": 99.90,
+  "net_value": 93.91,
+  "platform_fee": 5.99,
+  "pix": {
+    "txid": "zp1234567890abcdef...",
+    "qr_code": "data:image/png;base64,iVBORw0KGgo...",
+    "copy_paste": "00020126580014br.gov.bcb.pix...",
+    "expires_at": "2026-01-20T14:00:00Z"
+  },
+  "created_at": "2026-01-20T13:00:00Z"
+}
+```
+
+## Passo 4: Exibir o QR Code
+
+Use o campo `pix.qr_code` para exibir a imagem do QR Code:
+
+```html
+<img src="data:image/png;base64,iVBORw0KGgo..." alt="QR Code PIX" />
+```
+
+E o campo `pix.copy_paste` para o código copia-e-cola:
+
+```javascript
+document.getElementById('pixCode').textContent = data.pix.copy_paste;
+```
+
+## Passo 5: Verificar o pagamento
+
+Você pode verificar o status de duas formas:
+
+### Opção 1: Polling (consultar periodicamente)
+
+```javascript
+const checkPayment = setInterval(async () => {
+  const response = await fetch(`https://api.appzucropay.com/api/v1/charges/${chargeId}`, {
+    headers: { 'X-API-Key': 'zp_sua_api_key_aqui' }
+  });
+  const data = await response.json();
+  
+  if (data.status === 'RECEIVED') {
+    clearInterval(checkPayment);
+    alert('Pagamento confirmado!');
+  }
+}, 5000); // A cada 5 segundos
+```
+
+### Opção 2: Webhooks (recomendado)
+
+Configure um webhook para receber notificações em tempo real. Veja mais em [Webhooks](/concepts/webhooks).
+
+## Próximos Passos
+
+<CardGroup cols={2}>
+  <Card
+    title="Autenticação"
+    icon="key"
+    href="/authentication"
+  >
+    Entenda como autenticar suas requisições
+  </Card>
+  <Card
+    title="Webhooks"
+    icon="webhook"
+    href="/concepts/webhooks"
+  >
+    Configure webhooks para receber notificações
+  </Card>
+  <Card
+    title="Taxas e Fees"
+    icon="percent"
+    href="/concepts/fees"
+  >
+    Entenda como funcionam as taxas
+  </Card>
+  <Card
+    title="API Reference"
+    icon="code"
+    href="/api-reference/introduction"
+  >
+    Explore todos os endpoints disponíveis
+  </Card>
+</CardGroup>

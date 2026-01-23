@@ -1,0 +1,125 @@
+---
+title: 'Consultar Cobrança'
+api: 'GET https://api.appzucropay.com/api/v1/charges/{id}'
+description: 'Consulta os detalhes de uma cobrança específica'
+---
+
+## Path Parameters
+
+<ParamField path="id" type="string" required>
+  ID da cobrança
+</ParamField>
+
+## Response
+
+<ResponseField name="id" type="string">
+  ID único da cobrança
+</ResponseField>
+
+<ResponseField name="object" type="string">
+  Sempre `charge`
+</ResponseField>
+
+<ResponseField name="billing_type" type="string">
+  Tipo da cobrança: `PIX`, `CREDIT_CARD`, `BOLETO`
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Status: `PENDING`, `RECEIVED`, `OVERDUE`, `REFUNDED`, `CANCELLED`
+</ResponseField>
+
+<ResponseField name="value" type="number">
+  Valor bruto da cobrança
+</ResponseField>
+
+<ResponseField name="net_value" type="number">
+  Valor líquido (após taxas)
+</ResponseField>
+
+<ResponseField name="description" type="string">
+  Descrição da cobrança
+</ResponseField>
+
+<ResponseField name="pix" type="object">
+  Dados do PIX (se aplicável)
+</ResponseField>
+
+<ResponseField name="payment_date" type="string">
+  Data do pagamento (se pago)
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  Data de criação
+</ResponseField>
+
+<ResponseField name="metadata" type="object">
+  Metadados adicionais
+</ResponseField>
+
+<RequestExample>
+
+```bash cURL
+curl -X GET https://api.appzucropay.com/api/v1/charges/abc123-def456 \
+  -H "X-API-Key: zp_sua_api_key_aqui"
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.appzucropay.com/api/v1/charges/abc123-def456', {
+  headers: {
+    'X-API-Key': 'zp_sua_api_key_aqui'
+  }
+});
+
+const data = await response.json();
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json Pending
+{
+  "id": "abc123-def456-ghi789",
+  "object": "charge",
+  "billing_type": "PIX",
+  "status": "PENDING",
+  "value": 99.90,
+  "net_value": null,
+  "description": "Produto Premium",
+  "pix": {
+    "txid": "zp1234567890abcdefghijklmnop",
+    "qr_code": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
+    "copy_paste": "00020126580014br.gov.bcb.pix0136..."
+  },
+  "payment_date": null,
+  "created_at": "2026-01-20T13:00:00.000Z",
+  "metadata": {
+    "external_reference": "PEDIDO-123"
+  }
+}
+```
+
+```json Received
+{
+  "id": "abc123-def456-ghi789",
+  "object": "charge",
+  "billing_type": "PIX",
+  "status": "RECEIVED",
+  "value": 99.90,
+  "net_value": 93.91,
+  "description": "Produto Premium",
+  "pix": {
+    "txid": "zp1234567890abcdefghijklmnop",
+    "qr_code": "...",
+    "copy_paste": "..."
+  },
+  "payment_date": "2026-01-20T13:05:00.000Z",
+  "created_at": "2026-01-20T13:00:00.000Z",
+  "metadata": {
+    "external_reference": "PEDIDO-123",
+    "platform_fee": 5.99
+  }
+}
+```
+
+</ResponseExample>

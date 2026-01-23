@@ -1,0 +1,33 @@
+# ============================================
+# ZucroPay API - Configuração PRODUÇÃO (VPS)
+# ============================================
+# Copie este arquivo para .env no VPS
+
+# Database (PostgreSQL no VPS)
+DATABASE_URL="postgresql://zucropay:SUA_SENHA_FORTE_AQUI@localhost:5432/zucropay"
+
+# JWT (GERE UMA CHAVE FORTE! Use: openssl rand -hex 32)
+JWT_SECRET="COLE_AQUI_O_RESULTADO_DO_COMANDO_OPENSSL_RAND_HEX_32"
+JWT_EXPIRES_IN="7d"
+
+# Redis
+REDIS_URL="redis://localhost:6379"
+
+# EfiBank (PRODUÇÃO!)
+EFI_CLIENT_ID="seu_client_id_producao"
+EFI_CLIENT_SECRET="seu_client_secret_producao"
+EFI_PIX_KEY="sua_chave_pix_producao"
+EFI_CERTIFICATE_BASE64="seu_certificado_producao_em_base64"
+EFI_SANDBOX=false
+
+# Push Notifications
+VAPID_PUBLIC_KEY="sua_chave_publica_vapid"
+VAPID_PRIVATE_KEY="sua_chave_privada_vapid"
+VAPID_EMAIL="contato@appzucropay.com"
+
+# Server
+PORT=3000
+NODE_ENV="production"
+
+# Frontend URL (para CORS)
+FRONTEND_URL="https://dashboard.appzucropay.com"

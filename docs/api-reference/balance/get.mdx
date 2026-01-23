@@ -1,0 +1,82 @@
+---
+title: 'Consultar Saldo'
+api: 'GET https://api.appzucropay.com/api/v1/balance'
+description: 'Consulta o saldo disponível, reservado e total da conta'
+---
+
+## Response
+
+<ResponseField name="object" type="string">
+  Sempre `balance`
+</ResponseField>
+
+<ResponseField name="available" type="number">
+  Saldo disponível para saque
+</ResponseField>
+
+<ResponseField name="reserved" type="number">
+  Saldo em reserva (liberado após 30 dias)
+</ResponseField>
+
+<ResponseField name="total" type="number">
+  Saldo total (available + reserved)
+</ResponseField>
+
+<RequestExample>
+
+```bash cURL
+curl -X GET https://api.appzucropay.com/api/v1/balance \
+  -H "X-API-Key: zp_sua_api_key_aqui"
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.appzucropay.com/api/v1/balance', {
+  headers: {
+    'X-API-Key': 'zp_sua_api_key_aqui'
+  }
+});
+
+const data = await response.json();
+console.log(`Saldo disponível: R$ ${data.available.toFixed(2)}`);
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    'https://api.appzucropay.com/api/v1/balance',
+    headers={'X-API-Key': 'zp_sua_api_key_aqui'}
+)
+
+data = response.json()
+print(f"Saldo disponível: R$ {data['available']:.2f}")
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json Response
+{
+  "object": "balance",
+  "available": 1500.00,
+  "reserved": 75.00,
+  "total": 1575.00
+}
+```
+
+</ResponseExample>
+
+## Sobre o Saldo
+
+### Saldo Disponível
+
+É o valor que você pode sacar a qualquer momento.
+
+### Saldo Reservado
+
+5% de cada venda fica em reserva por 30 dias como garantia contra chargebacks e estornos. Após esse período, o valor é automaticamente liberado para o saldo disponível.
+
+<Info>
+  O saldo reservado é uma medida de segurança padrão do mercado de pagamentos. Ele protege tanto você quanto a plataforma contra fraudes.
+</Info>
