@@ -33,10 +33,12 @@ export async function adminRoutes(app: FastifyInstance) {
         // GMV - Total movimentado (todas as vendas pagas)
         const salesAgg = await prisma.payment.aggregate({
           where: { status: 'RECEIVED' },
-          _sum: { value: true, platform_fee: true }
+          _sum: { value: true, net_value: true }
         });
         gmv = Number(salesAgg._sum?.value || 0);
-        totalFees = Number(salesAgg._sum?.platform_fee || 0);
+        // Lucro = valor bruto - valor líquido (que vai pro seller)
+        const netTotal = Number(salesAgg._sum?.net_value || 0);
+        totalFees = gmv - netTotal;
         totalSales = gmv;
       } catch (e) {
         console.log('Erro ao buscar payments:', e);
