@@ -177,6 +177,7 @@ export async function adminRoutes(app: FastifyInstance) {
         reserved_balance: true,
         account_status: true,
         verification_status: true,
+        identity_verified: true,
         created_at: true,
       },
     });
