@@ -461,6 +461,22 @@ export async function adminRoutes(app: FastifyInstance) {
     return reply.send({ success: true, withdrawal: updated });
   });
 
+  // Obter taxas customizadas do usuário
+  app.get('/users/:id/rates', {
+    preHandler: [standardRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const rates = await prisma.userCustomRate.findUnique({
+      where: { user_id: id },
+    });
+
+    return reply.send({ 
+      success: true, 
+      rates: rates || null,
+    });
+  });
+
   // Definir taxas customizadas para usuário
   app.post('/users/:id/rates', {
     preHandler: [sensitiveActionRateLimit, authenticateAdmin],
