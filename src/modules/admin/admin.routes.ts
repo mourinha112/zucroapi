@@ -3,7 +3,7 @@ import { prisma } from '../../config/database';
 import { authenticateAdmin, standardRateLimit, sensitiveActionRateLimit } from '../../middlewares';
 
 export async function adminRoutes(app: FastifyInstance) {
-  // Dashboard stats
+  // Dashboard stats com GMV, Lucro e dados para gráficos
   app.get('/stats', {
     preHandler: [standardRateLimit, authenticateAdmin],
   }, async (request, reply) => {
@@ -22,14 +22,22 @@ export async function adminRoutes(app: FastifyInstance) {
       let completedWithdrawals = 0;
       let pendingVerifications = 0;
       let totalSales = 0;
+      let gmv = 0; // Gross Merchandise Volume (movimentação total)
+      let totalFees = 0; // Lucro da plataforma (taxas cobradas)
+      let totalWithdrawn = 0; // Total sacado
+      let chargebackCount = 0;
 
       try {
         totalPayments = await prisma.payment.count({ where: { status: 'RECEIVED' } });
+        
+        // GMV - Total movimentado (todas as vendas pagas)
         const salesAgg = await prisma.payment.aggregate({
           where: { status: 'RECEIVED' },
-          _sum: { value: true }
+          _sum: { value: true, platform_fee: true }
         });
-        totalSales = Number(salesAgg._sum?.value || 0);
+        gmv = Number(salesAgg._sum?.value || 0);
+        totalFees = Number(salesAgg._sum?.platform_fee || 0);
+        totalSales = gmv;
       } catch (e) {
         console.log('Erro ao buscar payments:', e);
       }
@@ -42,6 +50,13 @@ export async function adminRoutes(app: FastifyInstance) {
         });
         pendingWithdrawalAmount = Number(withdrawalAgg._sum.amount || 0);
         completedWithdrawals = await prisma.withdrawal.count({ where: { status: 'completed' } });
+        
+        // Total já sacado
+        const withdrawnAgg = await prisma.withdrawal.aggregate({
+          where: { status: 'completed' },
+          _sum: { amount: true }
+        });
+        totalWithdrawn = Number(withdrawnAgg._sum?.amount || 0);
       } catch (e) {
         console.log('Erro ao buscar withdrawals:', e);
       }
@@ -50,6 +65,52 @@ export async function adminRoutes(app: FastifyInstance) {
         pendingVerifications = await prisma.userVerification.count({ where: { status: 'pending' } });
       } catch (e) {
         console.log('Erro ao buscar verifications:', e);
+      }
+
+      // Dados para gráfico de vendas dos últimos 7 dias
+      let salesChartData: any[] = [];
+      try {
+        const last7Days = await prisma.$queryRaw`
+          SELECT 
+            DATE(created_at) as date,
+            COUNT(*) as count,
+            COALESCE(SUM(value), 0) as total
+          FROM payments 
+          WHERE status = 'RECEIVED' 
+            AND created_at >= NOW() - INTERVAL '7 days'
+          GROUP BY DATE(created_at)
+          ORDER BY date ASC
+        ` as any[];
+        
+        salesChartData = last7Days.map((d: any) => ({
+          date: new Date(d.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+          vendas: Number(d.count),
+          valor: Number(d.total),
+        }));
+      } catch (e) {
+        console.log('Erro ao buscar dados do gráfico:', e);
+      }
+
+      // Dados para gráfico de métodos de pagamento
+      let paymentMethodData: any[] = [];
+      try {
+        const methodStats = await prisma.$queryRaw`
+          SELECT 
+            billing_type,
+            COUNT(*) as count,
+            COALESCE(SUM(value), 0) as total
+          FROM payments 
+          WHERE status = 'RECEIVED'
+          GROUP BY billing_type
+        ` as any[];
+        
+        paymentMethodData = methodStats.map((m: any) => ({
+          name: m.billing_type || 'Outro',
+          value: Number(m.count),
+          total: Number(m.total),
+        }));
+      } catch (e) {
+        console.log('Erro ao buscar métodos de pagamento:', e);
       }
 
       return reply.send({
@@ -64,6 +125,15 @@ export async function adminRoutes(app: FastifyInstance) {
           totalBalance: Number(totalBalance._sum.balance || 0),
           pendingVerifications,
           totalSales,
+          // Novos campos
+          gmv, // Movimentação total
+          totalFees, // Lucro da plataforma
+          totalWithdrawn, // Total sacado
+          chargebackCount, // Chargebacks
+        },
+        charts: {
+          salesChart: salesChartData,
+          paymentMethods: paymentMethodData,
         },
       });
     } catch (error: any) {
@@ -110,6 +180,87 @@ export async function adminRoutes(app: FastifyInstance) {
     });
 
     return reply.send({ success: true, users });
+  });
+
+  // Detalhes de um usuário específico
+  app.get('/users/:id', {
+    preHandler: [standardRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          cpf_cnpj: true,
+          phone: true,
+          balance: true,
+          reserved_balance: true,
+          account_status: true,
+          account_status_reason: true,
+          verification_status: true,
+          created_at: true,
+          updated_at: true,
+        },
+      });
+
+      if (!user) {
+        return reply.status(404).send({ success: false, error: 'Usuário não encontrado' });
+      }
+
+      // Buscar estatísticas do usuário
+      let userStats = {
+        totalSales: 0,
+        totalValue: 0,
+        totalWithdrawals: 0,
+        withdrawnAmount: 0,
+      };
+
+      try {
+        const salesAgg = await prisma.payment.aggregate({
+          where: { user_id: id, status: 'RECEIVED' },
+          _count: true,
+          _sum: { value: true },
+        });
+        userStats.totalSales = salesAgg._count || 0;
+        userStats.totalValue = Number(salesAgg._sum?.value || 0);
+
+        const withdrawalsAgg = await prisma.withdrawal.aggregate({
+          where: { user_id: id, status: 'completed' },
+          _count: true,
+          _sum: { amount: true },
+        });
+        userStats.totalWithdrawals = withdrawalsAgg._count || 0;
+        userStats.withdrawnAmount = Number(withdrawalsAgg._sum?.amount || 0);
+      } catch (e) {
+        console.log('Erro ao buscar stats do usuário:', e);
+      }
+
+      // Buscar taxas customizadas
+      let customRates = null;
+      try {
+        customRates = await prisma.userCustomRate.findUnique({
+          where: { user_id: id },
+        });
+      } catch (e) {
+        // Tabela pode não existir
+      }
+
+      return reply.send({
+        success: true,
+        user: {
+          ...user,
+          stats: userStats,
+          customRates,
+        },
+      });
+    } catch (error: any) {
+      console.error('Erro ao buscar usuário:', error);
+      return reply.status(500).send({ success: false, error: error.message });
+    }
   });
 
   // Aprovar/Rejeitar usuário (ação sensível)
@@ -728,6 +879,80 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ============================================
+  // PRODUTOS (ADMIN)
+  // ============================================
+
+  // Listar todos os produtos
+  app.get('/products', {
+    preHandler: [standardRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    try {
+      const products = await prisma.product.findMany({
+        orderBy: { created_at: 'desc' },
+        include: {
+          user: {
+            select: { id: true, name: true, email: true },
+          },
+        },
+      });
+
+      return reply.send({ success: true, products });
+    } catch (error: any) {
+      console.error('Erro ao listar produtos:', error);
+      return reply.send({ success: true, products: [] });
+    }
+  });
+
+  // Deletar produto (admin pode deletar qualquer produto)
+  app.delete('/products/:id', {
+    preHandler: [sensitiveActionRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    const currentUser = request.currentUser!;
+    const { id } = request.params as { id: string };
+
+    try {
+      const product = await prisma.product.findUnique({
+        where: { id },
+        include: { user: { select: { name: true, email: true } } },
+      });
+
+      if (!product) {
+        return reply.status(404).send({ success: false, error: 'Produto não encontrado' });
+      }
+
+      await prisma.product.delete({
+        where: { id },
+      });
+
+      // Log da ação
+      await prisma.adminLog.create({
+        data: {
+          admin_id: currentUser.id,
+          action: 'delete_product',
+          target_type: 'product',
+          target_id: id,
+          details: {
+            product_name: product.name,
+            user_name: product.user?.name,
+            user_email: product.user?.email,
+          },
+        },
+      });
+
+      return reply.send({
+        success: true,
+        message: `Produto "${product.name}" deletado com sucesso`,
+      });
+    } catch (error: any) {
+      console.error('Erro ao deletar produto:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error.message || 'Erro ao deletar produto',
+      });
+    }
+  });
+
+  // ============================================
   // GERENTES (SUB-ADMINS)
   // ============================================
 
@@ -870,6 +1095,271 @@ export async function adminRoutes(app: FastifyInstance) {
         success: false,
         error: error.message || 'Erro ao remover gerente',
       });
+    }
+  });
+
+  // ============================================
+  // CHARGEBACKS
+  // ============================================
+
+  // Listar chargebacks
+  app.get('/chargebacks', {
+    preHandler: [standardRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    try {
+      const query = request.query as { status?: string; userId?: string };
+      
+      const chargebacks = await prisma.chargeback.findMany({
+        where: {
+          ...(query.status && { status: query.status }),
+          ...(query.userId && { user_id: query.userId }),
+        },
+        orderBy: { created_at: 'desc' },
+        include: {
+          user: {
+            select: { id: true, name: true, email: true, is_risky: true, chargeback_count: true },
+          },
+          payment: {
+            select: { id: true, value: true, billing_type: true, status: true, description: true },
+          },
+        },
+      });
+
+      return reply.send({ success: true, chargebacks });
+    } catch (error: any) {
+      console.error('Erro ao listar chargebacks:', error);
+      return reply.send({ success: true, chargebacks: [] });
+    }
+  });
+
+  // Criar chargeback
+  app.post('/chargebacks', {
+    preHandler: [sensitiveActionRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    const currentUser = request.currentUser!;
+    const body = request.body as {
+      payment_id: string;
+      reason?: string;
+      amount?: number;
+    };
+
+    try {
+      // Buscar o pagamento
+      const payment = await prisma.payment.findUnique({
+        where: { id: body.payment_id },
+        include: { user: true },
+      });
+
+      if (!payment) {
+        return reply.status(404).send({ success: false, error: 'Pagamento não encontrado' });
+      }
+
+      // Criar chargeback
+      const chargeback = await prisma.chargeback.create({
+        data: {
+          payment_id: body.payment_id,
+          user_id: payment.user_id,
+          amount: body.amount || payment.value,
+          reason: body.reason,
+          status: 'open',
+        },
+      });
+
+      // Incrementar contador de chargebacks do usuário
+      await prisma.user.update({
+        where: { id: payment.user_id },
+        data: {
+          chargeback_count: { increment: 1 },
+          // Se tiver 3+ chargebacks, marcar como risky
+          is_risky: payment.user.chargeback_count >= 2,
+          risk_level: payment.user.chargeback_count >= 2 ? 'high' : payment.user.chargeback_count >= 1 ? 'medium' : 'low',
+        },
+      });
+
+      // Log
+      await prisma.adminLog.create({
+        data: {
+          admin_id: currentUser.id,
+          action: 'create_chargeback',
+          target_type: 'chargeback',
+          target_id: chargeback.id,
+          details: { payment_id: body.payment_id, reason: body.reason },
+        },
+      });
+
+      return reply.send({
+        success: true,
+        message: 'Chargeback registrado',
+        chargeback,
+      });
+    } catch (error: any) {
+      console.error('Erro ao criar chargeback:', error);
+      return reply.status(500).send({ success: false, error: error.message });
+    }
+  });
+
+  // Atualizar status do chargeback
+  app.put('/chargebacks/:id', {
+    preHandler: [sensitiveActionRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    const currentUser = request.currentUser!;
+    const { id } = request.params as { id: string };
+    const body = request.body as { status: 'won' | 'lost' | 'cancelled'; admin_notes?: string };
+
+    try {
+      const chargeback = await prisma.chargeback.update({
+        where: { id },
+        data: {
+          status: body.status,
+          admin_notes: body.admin_notes,
+          resolved_at: new Date(),
+          resolved_by: currentUser.id,
+        },
+      });
+
+      // Se perdeu o chargeback, debitar do saldo do vendedor
+      if (body.status === 'lost') {
+        await prisma.user.update({
+          where: { id: chargeback.user_id },
+          data: {
+            balance: { decrement: chargeback.amount },
+          },
+        });
+      }
+
+      return reply.send({ success: true, chargeback });
+    } catch (error: any) {
+      console.error('Erro ao atualizar chargeback:', error);
+      return reply.status(500).send({ success: false, error: error.message });
+    }
+  });
+
+  // ============================================
+  // SELLERS DE RISCO
+  // ============================================
+
+  // Listar sellers de risco
+  app.get('/risky-sellers', {
+    preHandler: [standardRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    try {
+      const riskySellers = await prisma.user.findMany({
+        where: {
+          OR: [
+            { is_risky: true },
+            { chargeback_count: { gte: 1 } },
+            { refund_count: { gte: 3 } },
+          ],
+        },
+        orderBy: { chargeback_count: 'desc' },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          cpf_cnpj: true,
+          account_status: true,
+          is_risky: true,
+          risk_level: true,
+          risk_notes: true,
+          chargeback_count: true,
+          refund_count: true,
+          balance: true,
+          blocked_at: true,
+          blocked_reason: true,
+          created_at: true,
+        },
+      });
+
+      // Buscar estatísticas de chargebacks por seller
+      const sellersWithStats = await Promise.all(
+        riskySellers.map(async (seller) => {
+          const chargebacksTotal = await prisma.chargeback.aggregate({
+            where: { user_id: seller.id },
+            _sum: { amount: true },
+            _count: true,
+          });
+
+          return {
+            ...seller,
+            chargebacksValue: Number(chargebacksTotal._sum?.amount || 0),
+            chargebacksCount: chargebacksTotal._count,
+          };
+        })
+      );
+
+      return reply.send({ success: true, sellers: sellersWithStats });
+    } catch (error: any) {
+      console.error('Erro ao listar sellers de risco:', error);
+      return reply.send({ success: true, sellers: [] });
+    }
+  });
+
+  // Marcar/Desmarcar seller como de risco
+  app.post('/users/:id/risk-status', {
+    preHandler: [sensitiveActionRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    const currentUser = request.currentUser!;
+    const { id } = request.params as { id: string };
+    const body = request.body as { 
+      is_risky: boolean; 
+      risk_level?: string; 
+      risk_notes?: string;
+      block?: boolean;
+      blocked_reason?: string;
+    };
+
+    try {
+      const user = await prisma.user.update({
+        where: { id },
+        data: {
+          is_risky: body.is_risky,
+          risk_level: body.risk_level || (body.is_risky ? 'high' : 'low'),
+          risk_notes: body.risk_notes,
+          ...(body.block && {
+            account_status: 'blocked',
+            blocked_at: new Date(),
+            blocked_by: currentUser.id,
+            blocked_reason: body.blocked_reason || 'Marcado como seller de risco',
+          }),
+          ...(!body.block && body.is_risky === false && {
+            account_status: 'approved',
+            blocked_at: null,
+            blocked_by: null,
+            blocked_reason: null,
+          }),
+        },
+      });
+
+      // Log da ação
+      await prisma.riskySellerLog.create({
+        data: {
+          user_id: id,
+          action: body.is_risky ? 'marked_risky' : 'unmarked_risky',
+          reason: body.risk_notes || body.blocked_reason,
+          chargebacks: user.chargeback_count,
+          refunds: user.refund_count,
+          marked_by: currentUser.id,
+        },
+      });
+
+      await prisma.adminLog.create({
+        data: {
+          admin_id: currentUser.id,
+          action: body.is_risky ? 'mark_risky_seller' : 'unmark_risky_seller',
+          target_type: 'user',
+          target_id: id,
+          details: body,
+        },
+      });
+
+      return reply.send({
+        success: true,
+        message: body.is_risky ? 'Seller marcado como de risco' : 'Seller removido da lista de risco',
+        user,
+      });
+    } catch (error: any) {
+      console.error('Erro ao atualizar status de risco:', error);
+      return reply.status(500).send({ success: false, error: error.message });
     }
   });
 }

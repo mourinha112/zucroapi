@@ -30,6 +30,15 @@ model User {
   verification_reviewed_at  DateTime? @db.Timestamptz
   verification_reviewed_by  String?   @db.Uuid
   verification_rejection_reason String?
+  // Campos de risco
+  chargeback_count          Int       @default(0)
+  refund_count              Int       @default(0)
+  is_risky                  Boolean   @default(false)
+  risk_level                String    @default("low") @db.VarChar(20) // low, medium, high
+  risk_notes                String?
+  blocked_at                DateTime? @db.Timestamptz
+  blocked_by                String?   @db.Uuid
+  blocked_reason            String?
   created_at                DateTime  @default(now()) @db.Timestamptz
   updated_at                DateTime  @default(now()) @db.Timestamptz
 
@@ -43,6 +52,8 @@ model User {
   webhooks           Webhook[]
   push_subscriptions PushSubscription[]
   balance_reserves   BalanceReserve[]
+  chargebacks        Chargeback[]
+  risky_seller_logs  RiskySellerLog[]
   user_verification  UserVerification?
   custom_rates       UserCustomRate?
 
@@ -110,6 +121,7 @@ model Payment {
 
   user         User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
   payment_link PaymentLink? @relation(fields: [payment_link_id], references: [id])
+  chargebacks  Chargeback[]
 
   @@map("payments")
 }
@@ -346,4 +358,45 @@ model PlatformSettings {
   created_at        DateTime @default(now()) @db.Timestamptz
 
   @@map("platform_settings")
+}
+
+// ============================================
+// CHARGEBACKS E SELLERS DE RISCO
+// ============================================
+
+model Chargeback {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  payment_id      String    @db.Uuid
+  user_id         String    @db.Uuid
+  amount          Decimal   @db.Decimal(10, 2)
+  reason          String?
+  status          String    @default("open") @db.VarChar(20) // open, won, lost, cancelled
+  external_id     String?   @db.VarChar(100) // ID do chargeback no gateway
+  opened_at       DateTime  @default(now()) @db.Timestamptz
+  resolved_at     DateTime? @db.Timestamptz
+  resolved_by     String?   @db.Uuid
+  admin_notes     String?
+  created_at      DateTime  @default(now()) @db.Timestamptz
+  updated_at      DateTime  @default(now()) @db.Timestamptz
+
+  user    User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  payment Payment @relation(fields: [payment_id], references: [id], onDelete: Cascade)
+
+  @@map("chargebacks")
+}
+
+model RiskySellerLog {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id         String   @db.Uuid
+  action          String   @db.VarChar(50) // marked_risky, unmarked_risky, blocked, unblocked
+  reason          String?
+  chargebacks     Int      @default(0)
+  refunds         Int      @default(0)
+  total_disputed  Decimal  @default(0) @db.Decimal(10, 2)
+  marked_by       String?  @db.Uuid
+  created_at      DateTime @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("risky_seller_logs")
 }

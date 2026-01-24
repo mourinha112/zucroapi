@@ -108,4 +108,100 @@ export async function usersRoutes(app: FastifyInstance) {
       recentTransactions,
     });
   });
+
+  // ============================================
+  // VERIFICAÇÃO DE IDENTIDADE
+  // ============================================
+
+  // Obter status de verificação
+  app.get('/verification', {
+    preHandler: [standardRateLimit, authenticate],
+  }, async (request, reply) => {
+    const decoded = request.user as { id: string };
+
+    const verification = await prisma.userVerification.findUnique({
+      where: { user_id: decoded.id },
+    });
+
+    return reply.send({
+      success: true,
+      verification: verification || null,
+    });
+  });
+
+  // Submeter documentos para verificação
+  app.post('/verification', {
+    preHandler: [standardRateLimit, authenticate],
+  }, async (request, reply) => {
+    const decoded = request.user as { id: string };
+    const body = request.body as {
+      document_type: string;
+      document_front_url?: string;
+      document_back_url?: string;
+      selfie_url?: string;
+      full_name: string;
+      birth_date: string;
+      document_number: string;
+    };
+
+    try {
+      // Verificar se já existe uma verificação pendente ou aprovada
+      const existing = await prisma.userVerification.findUnique({
+        where: { user_id: decoded.id },
+      });
+
+      if (existing?.status === 'approved') {
+        return reply.status(400).send({
+          success: false,
+          error: 'Sua conta já está verificada',
+        });
+      }
+
+      // Criar ou atualizar verificação
+      const verification = await prisma.userVerification.upsert({
+        where: { user_id: decoded.id },
+        create: {
+          user_id: decoded.id,
+          document_type: body.document_type,
+          document_front_url: body.document_front_url,
+          document_back_url: body.document_back_url,
+          selfie_url: body.selfie_url,
+          full_name: body.full_name,
+          birth_date: body.birth_date ? new Date(body.birth_date) : null,
+          document_number: body.document_number,
+          status: 'pending',
+        },
+        update: {
+          document_type: body.document_type,
+          document_front_url: body.document_front_url,
+          document_back_url: body.document_back_url,
+          selfie_url: body.selfie_url,
+          full_name: body.full_name,
+          birth_date: body.birth_date ? new Date(body.birth_date) : null,
+          document_number: body.document_number,
+          status: 'pending',
+          rejection_reason: null,
+          updated_at: new Date(),
+        },
+      });
+
+      // Atualizar status do usuário
+      await prisma.user.update({
+        where: { id: decoded.id },
+        data: { verification_status: 'pending' },
+      });
+
+      return reply.send({
+        success: true,
+        message: 'Documentos enviados para verificação',
+        verification,
+      });
+    } catch (error: any) {
+      console.error('Erro ao enviar verificação:', error);
+      return reply.status(500).send({
+        success: false,
+        error: 'Erro ao processar verificação',
+      });
+    }
+  });
 }
