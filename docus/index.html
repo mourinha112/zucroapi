@@ -78,17 +78,53 @@
           <a href="#api-overview" class="nav-link" data-section="api-overview">Visão Geral</a>
           <div class="nav-group">
             <div class="nav-group-title">Cobranças</div>
-            <a href="#api-charges-create" class="nav-link sub" data-section="api-charges-create">POST Criar Cobrança</a>
+            <a href="#api-charges-create" class="nav-link sub" data-section="api-charges-create">POST Criar</a>
             <a href="#api-charges-get" class="nav-link sub" data-section="api-charges-get">GET Consultar</a>
             <a href="#api-charges-list" class="nav-link sub" data-section="api-charges-list">GET Listar</a>
+            <a href="#api-charges-refund" class="nav-link sub" data-section="api-charges-refund">POST Estornar</a>
+          </div>
+          <div class="nav-group">
+            <div class="nav-group-title">Clientes</div>
+            <a href="#api-customers-create" class="nav-link sub" data-section="api-customers-create">POST Criar</a>
+            <a href="#api-customers-list" class="nav-link sub" data-section="api-customers-list">GET Listar</a>
+          </div>
+          <div class="nav-group">
+            <div class="nav-group-title">Links de Pagamento</div>
+            <a href="#api-links-create" class="nav-link sub" data-section="api-links-create">POST Criar</a>
+            <a href="#api-links-list" class="nav-link sub" data-section="api-links-list">GET Listar</a>
+            <a href="#api-links-delete" class="nav-link sub" data-section="api-links-delete">DELETE Desativar</a>
+          </div>
+          <div class="nav-group">
+            <div class="nav-group-title">Produtos</div>
+            <a href="#api-products-create" class="nav-link sub" data-section="api-products-create">POST Criar</a>
+            <a href="#api-products-list" class="nav-link sub" data-section="api-products-list">GET Listar</a>
+            <a href="#api-products-update" class="nav-link sub" data-section="api-products-update">PUT Atualizar</a>
+            <a href="#api-products-delete" class="nav-link sub" data-section="api-products-delete">DELETE Excluir</a>
+          </div>
+          <div class="nav-group">
+            <div class="nav-group-title">Transações</div>
+            <a href="#api-transactions-list" class="nav-link sub" data-section="api-transactions-list">GET Listar</a>
+          </div>
+          <div class="nav-group">
+            <div class="nav-group-title">Saques</div>
+            <a href="#api-withdrawals-create" class="nav-link sub" data-section="api-withdrawals-create">POST Solicitar</a>
+            <a href="#api-withdrawals-list" class="nav-link sub" data-section="api-withdrawals-list">GET Listar</a>
           </div>
           <div class="nav-group">
             <div class="nav-group-title">Saldo</div>
-            <a href="#api-balance" class="nav-link sub" data-section="api-balance">GET Consultar Saldo</a>
+            <a href="#api-balance" class="nav-link sub" data-section="api-balance">GET Consultar</a>
           </div>
           <div class="nav-group">
             <div class="nav-group-title">Webhooks</div>
-            <a href="#api-webhooks-create" class="nav-link sub" data-section="api-webhooks-create">POST Criar Webhook</a>
+            <a href="#api-webhooks-create" class="nav-link sub" data-section="api-webhooks-create">POST Criar</a>
+            <a href="#api-webhooks-list" class="nav-link sub" data-section="api-webhooks-list">GET Listar</a>
+            <a href="#api-webhooks-delete" class="nav-link sub" data-section="api-webhooks-delete">DELETE Remover</a>
+          </div>
+          <div class="nav-group">
+            <div class="nav-group-title">API Keys</div>
+            <a href="#api-keys-create" class="nav-link sub" data-section="api-keys-create">POST Criar</a>
+            <a href="#api-keys-list" class="nav-link sub" data-section="api-keys-list">GET Listar</a>
+            <a href="#api-keys-revoke" class="nav-link sub" data-section="api-keys-revoke">DELETE Revogar</a>
           </div>
         </div>
         
@@ -1085,6 +1121,161 @@ if __name__ == '__main__':
                 <td><code>/api/v1/charges</code></td>
                 <td>Listar cobranças</td>
               </tr>
+              <tr>
+                <td><span class="method post">POST</span></td>
+                <td><code>/api/v1/charges/:id/refund</code></td>
+                <td>Estornar cobrança</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Clientes</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Método</th>
+                <th>Endpoint</th>
+                <th>Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="method post">POST</span></td>
+                <td><code>/api/v1/customers</code></td>
+                <td>Criar cliente</td>
+              </tr>
+              <tr>
+                <td><span class="method get">GET</span></td>
+                <td><code>/api/v1/customers/:id</code></td>
+                <td>Consultar cliente</td>
+              </tr>
+              <tr>
+                <td><span class="method get">GET</span></td>
+                <td><code>/api/v1/customers</code></td>
+                <td>Listar clientes</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Links de Pagamento</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Método</th>
+                <th>Endpoint</th>
+                <th>Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="method post">POST</span></td>
+                <td><code>/api/v1/payment-links</code></td>
+                <td>Criar link de pagamento</td>
+              </tr>
+              <tr>
+                <td><span class="method get">GET</span></td>
+                <td><code>/api/v1/payment-links/:id</code></td>
+                <td>Consultar link</td>
+              </tr>
+              <tr>
+                <td><span class="method get">GET</span></td>
+                <td><code>/api/v1/payment-links</code></td>
+                <td>Listar links</td>
+              </tr>
+              <tr>
+                <td><span class="method delete">DELETE</span></td>
+                <td><code>/api/v1/payment-links/:id</code></td>
+                <td>Desativar link</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Produtos</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Método</th>
+                <th>Endpoint</th>
+                <th>Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="method post">POST</span></td>
+                <td><code>/api/v1/products</code></td>
+                <td>Criar produto</td>
+              </tr>
+              <tr>
+                <td><span class="method get">GET</span></td>
+                <td><code>/api/v1/products/:id</code></td>
+                <td>Consultar produto</td>
+              </tr>
+              <tr>
+                <td><span class="method get">GET</span></td>
+                <td><code>/api/v1/products</code></td>
+                <td>Listar produtos</td>
+              </tr>
+              <tr>
+                <td><span class="method put">PUT</span></td>
+                <td><code>/api/v1/products/:id</code></td>
+                <td>Atualizar produto</td>
+              </tr>
+              <tr>
+                <td><span class="method delete">DELETE</span></td>
+                <td><code>/api/v1/products/:id</code></td>
+                <td>Excluir produto</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Transações</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Método</th>
+                <th>Endpoint</th>
+                <th>Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="method get">GET</span></td>
+                <td><code>/api/v1/transactions</code></td>
+                <td>Listar transações</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Saques</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Método</th>
+                <th>Endpoint</th>
+                <th>Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="method post">POST</span></td>
+                <td><code>/api/v1/withdrawals</code></td>
+                <td>Solicitar saque</td>
+              </tr>
+              <tr>
+                <td><span class="method get">GET</span></td>
+                <td><code>/api/v1/withdrawals</code></td>
+                <td>Listar saques</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -1122,18 +1313,48 @@ if __name__ == '__main__':
             <tbody>
               <tr>
                 <td><span class="method post">POST</span></td>
-                <td><code>/api/webhooks</code></td>
+                <td><code>/api/v1/webhooks</code></td>
                 <td>Criar webhook</td>
               </tr>
               <tr>
                 <td><span class="method get">GET</span></td>
-                <td><code>/api/webhooks</code></td>
+                <td><code>/api/v1/webhooks</code></td>
                 <td>Listar webhooks</td>
               </tr>
               <tr>
                 <td><span class="method delete">DELETE</span></td>
-                <td><code>/api/webhooks/:id</code></td>
+                <td><code>/api/v1/webhooks/:id</code></td>
                 <td>Deletar webhook</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>API Keys</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Método</th>
+                <th>Endpoint</th>
+                <th>Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="method post">POST</span></td>
+                <td><code>/api/v1/keys</code></td>
+                <td>Criar API Key</td>
+              </tr>
+              <tr>
+                <td><span class="method get">GET</span></td>
+                <td><code>/api/v1/keys</code></td>
+                <td>Listar API Keys</td>
+              </tr>
+              <tr>
+                <td><span class="method delete">DELETE</span></td>
+                <td><code>/api/v1/keys/:id</code></td>
+                <td>Revogar API Key</td>
               </tr>
             </tbody>
           </table>
@@ -1537,23 +1758,20 @@ const api = axios.create({
         <div class="code-block">
           <pre><code class="language-javascript">async function criarCobrancaPix(valor, descricao, cliente) {
   try {
-    const response = await api.post('/api/charges', {
-      amount: valor,
+    const response = await api.post('/api/v1/charges', {
+      value: valor,
       description: descricao,
       billing_type: 'PIX',
       customer: {
         name: cliente.nome,
-        cpf: cliente.cpf,
+        cpf_cnpj: cliente.cpf,
         email: cliente.email
-      },
-      expiration_minutes: 30
+      }
     });
 
-    if (response.data.success) {
-      console.log('QR Code:', response.data.charge.pix_qr_code);
-      console.log('Copia e Cola:', response.data.charge.pix_copy_paste);
-      return response.data.charge;
-    }
+    console.log('QR Code:', response.data.pix.qr_code);
+    console.log('Copia e Cola:', response.data.pix.copy_paste);
+    return response.data;
   } catch (error) {
     console.error('Erro ao criar cobrança:', error.response?.data);
     throw error;
@@ -1596,32 +1814,709 @@ const cobranca = await criarCobrancaPix(
 
   // Cobranças
   async criarCobranca(data) {
-    return this.request('POST', '/api/charges', data);
+    return this.request('POST', '/api/v1/charges', data);
   }
 
   async buscarCobranca(id) {
-    return this.request('GET', `/api/charges/${id}`);
+    return this.request('GET', `/api/v1/charges/${id}`);
   }
 
   async listarCobrancas() {
-    return this.request('GET', '/api/charges');
+    return this.request('GET', '/api/v1/charges');
   }
 
-  // Saldo
+  async estornarCobranca(id, amount) {
+    return this.request('POST', `/api/v1/charges/${id}/refund`, { amount });
+  }
+
+  // Produtos
+  async criarProduto(data) {
+    return this.request('POST', '/api/v1/products', data);
+  }
+
+  async listarProdutos() {
+    return this.request('GET', '/api/v1/products');
+  }
+
+  // Links de Pagamento
+  async criarLink(data) {
+    return this.request('POST', '/api/v1/payment-links', data);
+  }
+
+  async listarLinks() {
+    return this.request('GET', '/api/v1/payment-links');
+  }
+
+  // Saldo e Saques
   async saldo() {
-    return this.request('GET', '/api/users/balance');
+    return this.request('GET', '/api/v1/balance');
+  }
+
+  async solicitarSaque(amount, pix_key) {
+    return this.request('POST', '/api/v1/withdrawals', { amount, pix_key });
   }
 }
 
 // Uso
-const zucropay = new ZucroPay('sua_api_key');
+const zucropay = new ZucroPay('zp_sua_api_key');
 const cobranca = await zucropay.criarCobranca({
-  amount: 100,
+  value: 100,
   description: 'Teste',
   billing_type: 'PIX',
-  customer: { name: 'Cliente', cpf: '12345678900' }
+  customer: { name: 'Cliente', cpf_cnpj: '12345678900' }
 });</code></pre>
           <button class="copy-btn">Copiar</button>
+        </div>
+      </section>
+
+      <!-- API Refund Section -->
+      <section id="api-charges-refund" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method post">POST</span>
+            <code>/api/v1/charges/{id}/refund</code>
+          </div>
+          <h1>Estornar Cobrança</h1>
+          <p class="section-description">Estorna uma cobrança já paga</p>
+        </div>
+
+        <h2>Path Parameters</h2>
+        <div class="params-table">
+          <div class="param-row">
+            <div class="param-name">id <span class="required">obrigatório</span></div>
+            <div class="param-type">string</div>
+            <div class="param-desc">ID da cobrança a ser estornada</div>
+          </div>
+        </div>
+
+        <h2>Request Body</h2>
+        <div class="params-table">
+          <div class="param-row">
+            <div class="param-name">amount</div>
+            <div class="param-type">number</div>
+            <div class="param-desc">Valor a estornar (se não informado, estorna o valor total)</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">reason</div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Motivo do estorno</div>
+          </div>
+        </div>
+
+        <h2>Exemplo de Request</h2>
+        <div class="code-block">
+          <pre><code class="language-bash">curl -X POST https://api.appzucropay.com/api/v1/charges/abc123/refund \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: zp_sua_api_key_aqui" \
+  -d '{
+    "amount": 50.00,
+    "reason": "Cliente solicitou devolução"
+  }'</code></pre>
+          <button class="copy-btn">Copiar</button>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "object": "refund",
+  "id": "ref_a1b2c3d4e5f6",
+  "charge_id": "abc123",
+  "amount": 50.00,
+  "reason": "Cliente solicitou devolução",
+  "status": "succeeded",
+  "created_at": "2026-01-20T14:00:00.000Z"
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- API Customers Create Section -->
+      <section id="api-customers-create" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method post">POST</span>
+            <code>/api/v1/customers</code>
+          </div>
+          <h1>Criar Cliente</h1>
+          <p class="section-description">Cadastra um novo cliente</p>
+        </div>
+
+        <h2>Request Body</h2>
+        <div class="params-table">
+          <div class="param-row">
+            <div class="param-name">name <span class="required">obrigatório</span></div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Nome do cliente</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">email</div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Email do cliente</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">cpf_cnpj</div>
+            <div class="param-type">string</div>
+            <div class="param-desc">CPF ou CNPJ (apenas números)</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">phone</div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Telefone</div>
+          </div>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "object": "customer",
+  "id": "cus_abc123def456",
+  "name": "João Silva",
+  "email": "joao@email.com",
+  "cpf_cnpj": "12345678900",
+  "phone": "11999999999",
+  "created_at": "2026-01-20T13:00:00.000Z"
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- API Customers List Section -->
+      <section id="api-customers-list" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <code>/api/v1/customers</code>
+          </div>
+          <h1>Listar Clientes</h1>
+          <p class="section-description">Lista todos os clientes cadastrados</p>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "object": "list",
+  "data": [],
+  "total": 0,
+  "has_more": false
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- API Payment Links Create Section -->
+      <section id="api-links-create" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method post">POST</span>
+            <code>/api/v1/payment-links</code>
+          </div>
+          <h1>Criar Link de Pagamento</h1>
+          <p class="section-description">Cria um novo link de pagamento</p>
+        </div>
+
+        <h2>Request Body</h2>
+        <div class="params-table">
+          <div class="param-row">
+            <div class="param-name">name <span class="required">obrigatório</span></div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Nome do link</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">value <span class="required">obrigatório</span></div>
+            <div class="param-type">number</div>
+            <div class="param-desc">Valor do pagamento</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">description</div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Descrição do link</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">billing_type</div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Tipo de pagamento: PIX, CREDIT_CARD ou UNDEFINED</div>
+          </div>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "object": "payment_link",
+  "id": "abc123-def456",
+  "name": "Produto Premium",
+  "description": "Acesso vitalício",
+  "value": 299.90,
+  "billing_type": "UNDEFINED",
+  "checkout_url": "https://dashboard.appzucropay.com/checkout/abc123-def456",
+  "active": true,
+  "created_at": "2026-01-20T13:00:00.000Z"
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- API Payment Links List Section -->
+      <section id="api-links-list" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <code>/api/v1/payment-links</code>
+          </div>
+          <h1>Listar Links de Pagamento</h1>
+          <p class="section-description">Lista todos os links de pagamento</p>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "object": "list",
+  "data": [
+    {
+      "id": "abc123-def456",
+      "name": "Produto Premium",
+      "value": 299.90,
+      "billing_type": "UNDEFINED",
+      "checkout_url": "https://dashboard.appzucropay.com/checkout/abc123-def456",
+      "active": true,
+      "total_received": 1500.00,
+      "created_at": "2026-01-20T13:00:00.000Z"
+    }
+  ],
+  "total": 1
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- API Payment Links Delete Section -->
+      <section id="api-links-delete" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method delete">DELETE</span>
+            <code>/api/v1/payment-links/{id}</code>
+          </div>
+          <h1>Desativar Link</h1>
+          <p class="section-description">Desativa um link de pagamento</p>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "success": true,
+  "message": "Link desativado"
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- API Products Create Section -->
+      <section id="api-products-create" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method post">POST</span>
+            <code>/api/v1/products</code>
+          </div>
+          <h1>Criar Produto</h1>
+          <p class="section-description">Cadastra um novo produto</p>
+        </div>
+
+        <h2>Request Body</h2>
+        <div class="params-table">
+          <div class="param-row">
+            <div class="param-name">name <span class="required">obrigatório</span></div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Nome do produto</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">price <span class="required">obrigatório</span></div>
+            <div class="param-type">number</div>
+            <div class="param-desc">Preço do produto</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">description</div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Descrição do produto</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">image_url</div>
+            <div class="param-type">string</div>
+            <div class="param-desc">URL da imagem</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">stock</div>
+            <div class="param-type">number</div>
+            <div class="param-desc">Quantidade em estoque</div>
+          </div>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "object": "product",
+  "id": "prod_abc123",
+  "name": "Curso Premium",
+  "description": "Acesso vitalício ao curso",
+  "price": 497.00,
+  "image_url": "https://exemplo.com/imagem.jpg",
+  "stock": null,
+  "active": true,
+  "created_at": "2026-01-20T13:00:00.000Z"
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- API Products List Section -->
+      <section id="api-products-list" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <code>/api/v1/products</code>
+          </div>
+          <h1>Listar Produtos</h1>
+          <p class="section-description">Lista todos os produtos</p>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "object": "list",
+  "data": [
+    {
+      "id": "prod_abc123",
+      "name": "Curso Premium",
+      "description": "Acesso vitalício",
+      "price": 497.00,
+      "image_url": "https://exemplo.com/imagem.jpg",
+      "stock": null,
+      "active": true,
+      "created_at": "2026-01-20T13:00:00.000Z"
+    }
+  ],
+  "total": 1
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- API Products Update Section -->
+      <section id="api-products-update" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method put">PUT</span>
+            <code>/api/v1/products/{id}</code>
+          </div>
+          <h1>Atualizar Produto</h1>
+          <p class="section-description">Atualiza um produto existente</p>
+        </div>
+
+        <h2>Request Body</h2>
+        <div class="params-table">
+          <div class="param-row">
+            <div class="param-name">name</div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Novo nome</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">price</div>
+            <div class="param-type">number</div>
+            <div class="param-desc">Novo preço</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">description</div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Nova descrição</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">active</div>
+            <div class="param-type">boolean</div>
+            <div class="param-desc">Ativar/desativar produto</div>
+          </div>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "object": "product",
+  "id": "prod_abc123",
+  "name": "Curso Premium Atualizado",
+  "price": 597.00,
+  "active": true
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- API Products Delete Section -->
+      <section id="api-products-delete" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method delete">DELETE</span>
+            <code>/api/v1/products/{id}</code>
+          </div>
+          <h1>Excluir Produto</h1>
+          <p class="section-description">Remove um produto</p>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "success": true,
+  "message": "Produto excluído"
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- API Transactions List Section -->
+      <section id="api-transactions-list" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <code>/api/v1/transactions</code>
+          </div>
+          <h1>Listar Transações</h1>
+          <p class="section-description">Lista o histórico de transações</p>
+        </div>
+
+        <h2>Query Parameters</h2>
+        <div class="params-table">
+          <div class="param-row">
+            <div class="param-name">type</div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Filtrar por tipo de transação</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">limit</div>
+            <div class="param-type">number</div>
+            <div class="param-desc">Limite de resultados (máx: 100)</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">offset</div>
+            <div class="param-type">number</div>
+            <div class="param-desc">Offset para paginação</div>
+          </div>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "object": "list",
+  "data": [
+    {
+      "id": "txn_abc123",
+      "type": "credit",
+      "amount": 99.90,
+      "status": "completed",
+      "description": "Pagamento recebido",
+      "created_at": "2026-01-20T13:05:00.000Z"
+    }
+  ],
+  "total": 1
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- API Withdrawals Create Section -->
+      <section id="api-withdrawals-create" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method post">POST</span>
+            <code>/api/v1/withdrawals</code>
+          </div>
+          <h1>Solicitar Saque</h1>
+          <p class="section-description">Solicita um novo saque</p>
+        </div>
+
+        <h2>Request Body</h2>
+        <div class="params-table">
+          <div class="param-row">
+            <div class="param-name">amount <span class="required">obrigatório</span></div>
+            <div class="param-type">number</div>
+            <div class="param-desc">Valor do saque</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">pix_key</div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Chave PIX para receber o saque</div>
+          </div>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "object": "withdrawal",
+  "id": "wd_abc123",
+  "amount": 500.00,
+  "status": "pending",
+  "created_at": "2026-01-20T14:00:00.000Z"
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- API Withdrawals List Section -->
+      <section id="api-withdrawals-list" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <code>/api/v1/withdrawals</code>
+          </div>
+          <h1>Listar Saques</h1>
+          <p class="section-description">Lista todos os saques solicitados</p>
+        </div>
+
+        <h2>Query Parameters</h2>
+        <div class="params-table">
+          <div class="param-row">
+            <div class="param-name">status</div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Filtrar por status: pending, approved, rejected</div>
+          </div>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "object": "list",
+  "data": [
+    {
+      "id": "wd_abc123",
+      "amount": 500.00,
+      "status": "approved",
+      "pix_key": "email@exemplo.com",
+      "created_at": "2026-01-20T14:00:00.000Z"
+    }
+  ],
+  "total": 1
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- API Webhooks List Section -->
+      <section id="api-webhooks-list" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <code>/api/v1/webhooks</code>
+          </div>
+          <h1>Listar Webhooks</h1>
+          <p class="section-description">Lista todos os webhooks configurados</p>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "object": "list",
+  "data": [
+    {
+      "id": "wh_abc123",
+      "url": "https://seusite.com/webhook",
+      "events": ["payment.received", "payment.refunded"],
+      "status": "active",
+      "created_at": "2026-01-20T10:00:00.000Z"
+    }
+  ],
+  "total": 1
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- API Webhooks Delete Section -->
+      <section id="api-webhooks-delete" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method delete">DELETE</span>
+            <code>/api/v1/webhooks/{id}</code>
+          </div>
+          <h1>Remover Webhook</h1>
+          <p class="section-description">Remove um webhook configurado</p>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "success": true,
+  "message": "Webhook removido"
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- API Keys Create Section -->
+      <section id="api-keys-create" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method post">POST</span>
+            <code>/api/v1/keys</code>
+          </div>
+          <h1>Criar API Key</h1>
+          <p class="section-description">Gera uma nova API Key (requer autenticação JWT)</p>
+        </div>
+
+        <h2>Request Body</h2>
+        <div class="params-table">
+          <div class="param-row">
+            <div class="param-name">name</div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Nome descritivo para a API Key</div>
+          </div>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "success": true,
+  "id": "key_abc123",
+  "name": "Minha API Key",
+  "api_key": "zp_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0",
+  "created_at": "2026-01-20T10:00:00.000Z",
+  "warning": "Guarde esta chave em local seguro. Ela não será exibida novamente."
+}</code></pre>
+        </div>
+
+        <div class="callout warning">
+          <strong>Importante:</strong> A API Key completa só é exibida uma vez no momento da criação. Guarde-a em local seguro!
+        </div>
+      </section>
+
+      <!-- API Keys List Section -->
+      <section id="api-keys-list" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <code>/api/v1/keys</code>
+          </div>
+          <h1>Listar API Keys</h1>
+          <p class="section-description">Lista todas as API Keys (requer autenticação JWT)</p>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "keys": [
+    {
+      "id": "key_abc123",
+      "name": "Minha API Key",
+      "api_key": "zp_a1b2...t0",
+      "status": "active",
+      "last_used_at": "2026-01-20T15:30:00.000Z",
+      "created_at": "2026-01-20T10:00:00.000Z"
+    }
+  ]
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- API Keys Revoke Section -->
+      <section id="api-keys-revoke" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method delete">DELETE</span>
+            <code>/api/v1/keys/{id}</code>
+          </div>
+          <h1>Revogar API Key</h1>
+          <p class="section-description">Revoga uma API Key (requer autenticação JWT)</p>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "success": true,
+  "message": "API Key revogada"
+}</code></pre>
+        </div>
+
+        <div class="callout info">
+          API Keys revogadas param de funcionar imediatamente. Certifique-se de atualizar suas integrações antes de revogar.
         </div>
       </section>
     </main>
