@@ -180,7 +180,7 @@ export async function verificationRoutes(app: FastifyInstance) {
       await prisma.user.update({
         where: { id: user.id },
         data: {
-          verification_status: 'pending',
+          verification_status: 'submitted', // 'submitted' = documentos enviados, aguardando análise
           verification_attempts: newAttempts,
           verification_submitted_at: new Date(),
         },
