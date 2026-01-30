@@ -1475,4 +1475,158 @@ export async function adminRoutes(app: FastifyInstance) {
       return reply.status(500).send({ success: false, error: error.message });
     }
   });
+
+  // ========================================
+  // SALES / VENDAS
+  // ========================================
+  app.get('/sales', {
+    preHandler: [standardRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    const query = request.query as {
+      status?: string;
+      startDate?: string;
+      endDate?: string;
+      limit?: string;
+      userId?: string;
+    };
+
+    try {
+      const where: any = {};
+      
+      if (query.status) {
+        where.status = query.status;
+      }
+      if (query.userId) {
+        where.user_id = query.userId;
+      }
+      if (query.startDate) {
+        where.created_at = { ...where.created_at, gte: new Date(query.startDate) };
+      }
+      if (query.endDate) {
+        where.created_at = { ...where.created_at, lte: new Date(query.endDate) };
+      }
+
+      const sales = await prisma.payment.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        take: parseInt(query.limit || '100'),
+        include: {
+          user: {
+            select: { id: true, name: true, email: true },
+          },
+        },
+      });
+
+      return reply.send({
+        success: true,
+        sales: sales.map((s: any) => ({
+          id: s.id,
+          amount: Number(s.value),
+          net_value: Number(s.net_value),
+          fee: Number(s.fee),
+          billing_type: s.billing_type,
+          status: s.status,
+          created_at: s.created_at,
+          user: s.user,
+        })),
+      });
+    } catch (error: any) {
+      console.error('Erro ao buscar vendas:', error);
+      return reply.status(500).send({ success: false, error: error.message });
+    }
+  });
+
+  // ========================================
+  // WEBHOOK LOGS
+  // ========================================
+  app.get('/webhook-logs', {
+    preHandler: [standardRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    const query = request.query as {
+      eventType?: string;
+      processed?: string;
+      limit?: string;
+    };
+
+    try {
+      const where: any = {};
+      
+      if (query.eventType) {
+        where.event_type = query.eventType;
+      }
+      if (query.processed !== undefined) {
+        where.processed = query.processed === 'true';
+      }
+
+      // Try to get webhook logs from the database
+      let logs: any[] = [];
+      try {
+        logs = await prisma.webhookLog.findMany({
+          where,
+          orderBy: { created_at: 'desc' },
+          take: parseInt(query.limit || '50'),
+        });
+      } catch (e) {
+        // Table might not exist
+        console.log('webhookLog table might not exist:', e);
+      }
+
+      return reply.send({
+        success: true,
+        logs,
+      });
+    } catch (error: any) {
+      console.error('Erro ao buscar webhook logs:', error);
+      return reply.send({ success: true, logs: [] });
+    }
+  });
+
+  // ========================================
+  // ADMIN LOGS
+  // ========================================
+  app.get('/logs', {
+    preHandler: [standardRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    const query = request.query as {
+      action?: string;
+      targetType?: string;
+      limit?: string;
+    };
+
+    try {
+      const where: any = {};
+      
+      if (query.action) {
+        where.action = query.action;
+      }
+      if (query.targetType) {
+        where.target_type = query.targetType;
+      }
+
+      const logs = await prisma.adminLog.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        take: parseInt(query.limit || '50'),
+      });
+
+      // Get admin names for logs
+      const adminIds = [...new Set(logs.map((l: any) => l.admin_id).filter(Boolean))];
+      const admins = adminIds.length > 0 ? await prisma.user.findMany({
+        where: { id: { in: adminIds } },
+        select: { id: true, name: true, email: true },
+      }) : [];
+      const adminMap = Object.fromEntries(admins.map(a => [a.id, a]));
+
+      return reply.send({
+        success: true,
+        logs: logs.map((l: any) => ({
+          ...l,
+          admin: l.admin_id ? adminMap[l.admin_id] || null : null,
+        })),
+      });
+    } catch (error: any) {
+      console.error('Erro ao buscar admin logs:', error);
+      return reply.send({ success: true, logs: [] });
+    }
+  });
 }
