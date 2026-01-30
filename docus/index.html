@@ -1,0 +1,1634 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZucroPay API - Documentação</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Top Navigation -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <button class="menu-toggle" id="menuToggle">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+      </button>
+      <a href="#" class="logo">
+        <svg width="32" height="32" viewBox="0 0 100 100" fill="none">
+          <rect width="100" height="100" rx="20" fill="#5818C8"/>
+          <path d="M25 65L40 35H50L35 65H25Z" fill="white"/>
+          <path d="M45 65L60 35H70L55 65H45Z" fill="white"/>
+          <circle cx="72" cy="55" r="8" fill="#8B5CF6"/>
+        </svg>
+        <span>ZucroPay</span>
+      </a>
+    </div>
+    <div class="topbar-right">
+      <a href="https://dashboard.appzucropay.com" class="topbar-link" target="_blank">Dashboard</a>
+      <a href="https://dashboard.appzucropay.com/register" class="btn-primary" target="_blank">Criar Conta</a>
+      <button class="theme-toggle" id="themeToggle" title="Alternar tema">
+        <svg class="sun-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="5"></circle>
+          <line x1="12" y1="1" x2="12" y2="3"></line>
+          <line x1="12" y1="21" x2="12" y2="23"></line>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+          <line x1="1" y1="12" x2="3" y2="12"></line>
+          <line x1="21" y1="12" x2="23" y2="12"></line>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+        </svg>
+        <svg class="moon-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <nav class="sidebar-nav">
+        <div class="nav-section">
+          <div class="nav-section-title">Começando</div>
+          <a href="#introduction" class="nav-link active" data-section="introduction">Introdução</a>
+          <a href="#quickstart" class="nav-link" data-section="quickstart">Início Rápido</a>
+          <a href="#authentication" class="nav-link" data-section="authentication">Autenticação</a>
+        </div>
+        
+        <div class="nav-section">
+          <div class="nav-section-title">Conceitos</div>
+          <a href="#charges" class="nav-link" data-section="charges">Cobranças</a>
+          <a href="#payments" class="nav-link" data-section="payments">Pagamentos</a>
+          <a href="#webhooks" class="nav-link" data-section="webhooks">Webhooks</a>
+          <a href="#fees" class="nav-link" data-section="fees">Taxas e Tarifas</a>
+        </div>
+        
+        <div class="nav-section">
+          <div class="nav-section-title">API Reference</div>
+          <a href="#api-overview" class="nav-link" data-section="api-overview">Visão Geral</a>
+          <div class="nav-group">
+            <div class="nav-group-title">Cobranças</div>
+            <a href="#api-charges-create" class="nav-link sub" data-section="api-charges-create">POST Criar Cobrança</a>
+            <a href="#api-charges-get" class="nav-link sub" data-section="api-charges-get">GET Consultar</a>
+            <a href="#api-charges-list" class="nav-link sub" data-section="api-charges-list">GET Listar</a>
+          </div>
+          <div class="nav-group">
+            <div class="nav-group-title">Saldo</div>
+            <a href="#api-balance" class="nav-link sub" data-section="api-balance">GET Consultar Saldo</a>
+          </div>
+          <div class="nav-group">
+            <div class="nav-group-title">Webhooks</div>
+            <a href="#api-webhooks-create" class="nav-link sub" data-section="api-webhooks-create">POST Criar Webhook</a>
+          </div>
+        </div>
+        
+        <div class="nav-section">
+          <div class="nav-section-title">Integrações</div>
+          <a href="#sdk-javascript" class="nav-link" data-section="sdk-javascript">JavaScript / Node.js</a>
+        </div>
+      </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Introduction Section -->
+      <section id="introduction" class="content-section active">
+        <div class="section-header">
+          <h1>Bem-vindo à ZucroPay</h1>
+          <p class="section-description">Gateway de Pagamentos PIX, Cartão e Boleto</p>
+        </div>
+
+        <p class="lead">A <strong>ZucroPay</strong> é uma plataforma de pagamentos completa que permite você receber pagamentos via <strong>PIX</strong>, <strong>Cartão de Crédito</strong> e <strong>Boleto</strong> de forma simples e integrada.</p>
+
+        <div class="card-grid">
+          <a href="#quickstart" class="card" data-navigate="quickstart">
+            <div class="card-icon">🚀</div>
+            <h3>Início Rápido</h3>
+            <p>Comece a receber pagamentos em 5 minutos</p>
+          </a>
+          <a href="#authentication" class="card" data-navigate="authentication">
+            <div class="card-icon">🔑</div>
+            <h3>Autenticação</h3>
+            <p>Aprenda a autenticar suas requisições</p>
+          </a>
+          <a href="#api-overview" class="card" data-navigate="api-overview">
+            <div class="card-icon">💻</div>
+            <h3>API Reference</h3>
+            <p>Documentação completa de todos os endpoints</p>
+          </a>
+          <a href="#webhooks" class="card" data-navigate="webhooks">
+            <div class="card-icon">🔔</div>
+            <h3>Webhooks</h3>
+            <p>Receba notificações de pagamentos em tempo real</p>
+          </a>
+        </div>
+
+        <h2>Principais Funcionalidades</h2>
+        
+        <div class="accordion">
+          <div class="accordion-item">
+            <button class="accordion-header">
+              <span>⚡ PIX Instantâneo</span>
+              <svg class="accordion-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6,9 12,15 18,9"></polyline>
+              </svg>
+            </button>
+            <div class="accordion-content">
+              <p>Receba pagamentos PIX em segundos. QR Code e código copia-e-cola gerados automaticamente.</p>
+            </div>
+          </div>
+          <div class="accordion-item">
+            <button class="accordion-header">
+              <span>💳 Cartão de Crédito</span>
+              <svg class="accordion-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6,9 12,15 18,9"></polyline>
+              </svg>
+            </button>
+            <div class="accordion-content">
+              <p>Aceite as principais bandeiras com parcelamento em até 12x.</p>
+            </div>
+          </div>
+          <div class="accordion-item">
+            <button class="accordion-header">
+              <span>📄 Boleto Bancário</span>
+              <svg class="accordion-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6,9 12,15 18,9"></polyline>
+              </svg>
+            </button>
+            <div class="accordion-content">
+              <p>Gere boletos com vencimento configurável.</p>
+            </div>
+          </div>
+          <div class="accordion-item">
+            <button class="accordion-header">
+              <span>🔔 Webhooks</span>
+              <svg class="accordion-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6,9 12,15 18,9"></polyline>
+              </svg>
+            </button>
+            <div class="accordion-content">
+              <p>Receba notificações em tempo real quando pagamentos forem confirmados.</p>
+            </div>
+          </div>
+          <div class="accordion-item">
+            <button class="accordion-header">
+              <span>📊 Dashboard Completo</span>
+              <svg class="accordion-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6,9 12,15 18,9"></polyline>
+              </svg>
+            </button>
+            <div class="accordion-content">
+              <p>Acompanhe vendas, saques e métricas em tempo real.</p>
+            </div>
+          </div>
+        </div>
+
+        <h2>URL Base</h2>
+        <p>Todas as requisições devem ser feitas para:</p>
+        <div class="code-block">
+          <pre><code class="language-bash">https://api.appzucropay.com</code></pre>
+          <button class="copy-btn" data-copy="https://api.appzucropay.com">Copiar</button>
+        </div>
+
+        <h2>Suporte</h2>
+        <p>Precisa de ajuda? Entre em contato:</p>
+        <ul>
+          <li><strong>Email:</strong> <a href="mailto:suporte@appzucropay.com">suporte@appzucropay.com</a></li>
+          <li><strong>Dashboard:</strong> <a href="https://dashboard.appzucropay.com" target="_blank">dashboard.appzucropay.com</a></li>
+        </ul>
+      </section>
+
+      <!-- Quickstart Section -->
+      <section id="quickstart" class="content-section">
+        <div class="section-header">
+          <h1>Início Rápido</h1>
+          <p class="section-description">Comece a receber pagamentos em 5 minutos</p>
+        </div>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-number">1</div>
+            <div class="step-content">
+              <h3>Criar sua conta</h3>
+              <p>Primeiro, crie sua conta no dashboard:</p>
+              <a href="https://dashboard.appzucropay.com/register" class="btn-primary" target="_blank">Cadastre-se gratuitamente</a>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-number">2</div>
+            <div class="step-content">
+              <h3>Gerar sua API Key</h3>
+              <p>Após criar sua conta, vá em <strong>Integrações</strong> e gere sua API Key:</p>
+              <ol>
+                <li>Acesse o <a href="https://dashboard.appzucropay.com" target="_blank">Dashboard</a></li>
+                <li>Vá em <strong>Integrações</strong> no menu lateral</li>
+                <li>Clique em <strong>Criar Nova API Key</strong></li>
+                <li>Copie e guarde sua chave (ela não será exibida novamente!)</li>
+              </ol>
+              <div class="callout warning">
+                <strong>Importante:</strong> Guarde sua API Key em local seguro. Ela não será exibida novamente após criada.
+              </div>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-number">3</div>
+            <div class="step-content">
+              <h3>Criar sua primeira cobrança</h3>
+              <p>Agora você pode criar sua primeira cobrança PIX:</p>
+              
+              <div class="code-tabs">
+                <div class="code-tab-buttons">
+                  <button class="code-tab-btn active" data-tab="curl">cURL</button>
+                  <button class="code-tab-btn" data-tab="javascript">JavaScript</button>
+                  <button class="code-tab-btn" data-tab="python">Python</button>
+                  <button class="code-tab-btn" data-tab="php">PHP</button>
+                </div>
+                <div class="code-tab-content active" data-tab="curl">
+                  <div class="code-block">
+                    <pre><code class="language-bash">curl -X POST https://api.appzucropay.com/api/v1/charges \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: zp_sua_api_key_aqui" \
+  -d '{
+    "billing_type": "PIX",
+    "value": 99.90,
+    "description": "Produto de Teste",
+    "customer": {
+      "name": "João Silva",
+      "email": "joao@email.com",
+      "cpf_cnpj": "12345678900"
+    }
+  }'</code></pre>
+                    <button class="copy-btn">Copiar</button>
+                  </div>
+                </div>
+                <div class="code-tab-content" data-tab="javascript">
+                  <div class="code-block">
+                    <pre><code class="language-javascript">const response = await fetch('https://api.appzucropay.com/api/v1/charges', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-API-Key': 'zp_sua_api_key_aqui'
+  },
+  body: JSON.stringify({
+    billing_type: 'PIX',
+    value: 99.90,
+    description: 'Produto de Teste',
+    customer: {
+      name: 'João Silva',
+      email: 'joao@email.com',
+      cpf_cnpj: '12345678900'
+    }
+  })
+});
+
+const data = await response.json();
+console.log(data);</code></pre>
+                    <button class="copy-btn">Copiar</button>
+                  </div>
+                </div>
+                <div class="code-tab-content" data-tab="python">
+                  <div class="code-block">
+                    <pre><code class="language-python">import requests
+
+response = requests.post(
+    'https://api.appzucropay.com/api/v1/charges',
+    headers={
+        'Content-Type': 'application/json',
+        'X-API-Key': 'zp_sua_api_key_aqui'
+    },
+    json={
+        'billing_type': 'PIX',
+        'value': 99.90,
+        'description': 'Produto de Teste',
+        'customer': {
+            'name': 'João Silva',
+            'email': 'joao@email.com',
+            'cpf_cnpj': '12345678900'
+        }
+    }
+)
+
+print(response.json())</code></pre>
+                    <button class="copy-btn">Copiar</button>
+                  </div>
+                </div>
+                <div class="code-tab-content" data-tab="php">
+                  <div class="code-block">
+                    <pre><code class="language-php">&lt;?php
+$curl = curl_init();
+
+curl_setopt_array($curl, [
+    CURLOPT_URL => 'https://api.appzucropay.com/api/v1/charges',
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_POST => true,
+    CURLOPT_HTTPHEADER => [
+        'Content-Type: application/json',
+        'X-API-Key: zp_sua_api_key_aqui'
+    ],
+    CURLOPT_POSTFIELDS => json_encode([
+        'billing_type' => 'PIX',
+        'value' => 99.90,
+        'description' => 'Produto de Teste',
+        'customer' => [
+            'name' => 'João Silva',
+            'email' => 'joao@email.com',
+            'cpf_cnpj' => '12345678900'
+        ]
+    ])
+]);
+
+$response = curl_exec($curl);
+curl_close($curl);
+
+print_r(json_decode($response, true));</code></pre>
+                    <button class="copy-btn">Copiar</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <h2>Resposta</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "id": "abc123-def456-ghi789",
+  "object": "charge",
+  "billing_type": "PIX",
+  "status": "PENDING",
+  "value": 99.90,
+  "net_value": 93.91,
+  "platform_fee": 5.99,
+  "pix": {
+    "txid": "zp1234567890abcdef...",
+    "qr_code": "data:image/png;base64,iVBORw0KGgo...",
+    "copy_paste": "00020126580014br.gov.bcb.pix...",
+    "expires_at": "2026-01-20T14:00:00Z"
+  },
+  "created_at": "2026-01-20T13:00:00Z"
+}</code></pre>
+          <button class="copy-btn">Copiar</button>
+        </div>
+
+        <div class="step">
+          <div class="step-number">4</div>
+          <div class="step-content">
+            <h3>Exibir o QR Code</h3>
+            <p>Use o campo <code>pix.qr_code</code> para exibir a imagem do QR Code:</p>
+            <div class="code-block">
+              <pre><code class="language-html">&lt;img src="data:image/png;base64,iVBORw0KGgo..." alt="QR Code PIX" /&gt;</code></pre>
+              <button class="copy-btn">Copiar</button>
+            </div>
+            <p>E o campo <code>pix.copy_paste</code> para o código copia-e-cola:</p>
+            <div class="code-block">
+              <pre><code class="language-javascript">document.getElementById('pixCode').textContent = data.pix.copy_paste;</code></pre>
+              <button class="copy-btn">Copiar</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-number">5</div>
+          <div class="step-content">
+            <h3>Verificar o pagamento</h3>
+            <p>Você pode verificar o status de duas formas:</p>
+            
+            <h4>Opção 1: Polling (consultar periodicamente)</h4>
+            <div class="code-block">
+              <pre><code class="language-javascript">const checkPayment = setInterval(async () => {
+  const response = await fetch(`https://api.appzucropay.com/api/v1/charges/${chargeId}`, {
+    headers: { 'X-API-Key': 'zp_sua_api_key_aqui' }
+  });
+  const data = await response.json();
+  
+  if (data.status === 'RECEIVED') {
+    clearInterval(checkPayment);
+    alert('Pagamento confirmado!');
+  }
+}, 5000); // A cada 5 segundos</code></pre>
+              <button class="copy-btn">Copiar</button>
+            </div>
+
+            <h4>Opção 2: Webhooks (recomendado)</h4>
+            <p>Configure um webhook para receber notificações em tempo real. Veja mais em <a href="#webhooks" data-navigate="webhooks">Webhooks</a>.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Authentication Section -->
+      <section id="authentication" class="content-section">
+        <div class="section-header">
+          <h1>Autenticação</h1>
+          <p class="section-description">Como autenticar suas requisições na API ZucroPay</p>
+        </div>
+
+        <h2>API Keys</h2>
+        <p>A ZucroPay usa <strong>API Keys</strong> para autenticar requisições. Você pode gerenciar suas API Keys no <a href="https://dashboard.appzucropay.com/integracoes" target="_blank">Dashboard</a>.</p>
+
+        <h3>Formato da API Key</h3>
+        <p>As API Keys seguem o formato:</p>
+        <div class="code-block">
+          <pre><code>zp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</code></pre>
+          <button class="copy-btn">Copiar</button>
+        </div>
+
+        <div class="callout warning">
+          <strong>Nunca compartilhe sua API Key!</strong> Ela dá acesso completo à sua conta. Se você suspeitar que ela foi comprometida, revogue-a imediatamente no Dashboard.
+        </div>
+
+        <h2>Como Autenticar</h2>
+        <p>Existem duas formas de enviar sua API Key:</p>
+
+        <h3>Header X-API-Key (Recomendado)</h3>
+        <div class="code-block">
+          <pre><code class="language-bash">curl -X GET https://api.appzucropay.com/api/v1/charges \
+  -H "X-API-Key: zp_sua_api_key_aqui"</code></pre>
+          <button class="copy-btn">Copiar</button>
+        </div>
+
+        <h3>Header Authorization</h3>
+        <div class="code-block">
+          <pre><code class="language-bash">curl -X GET https://api.appzucropay.com/api/v1/charges \
+  -H "Authorization: Bearer zp_sua_api_key_aqui"</code></pre>
+          <button class="copy-btn">Copiar</button>
+        </div>
+
+        <h2>Erros de Autenticação</h2>
+
+        <h3>401 - API Key não fornecida</h3>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "error": "API Key não fornecida",
+  "code": "API_KEY_MISSING"
+}</code></pre>
+        </div>
+        <p><strong>Solução:</strong> Adicione o header <code>X-API-Key</code> com sua API Key.</p>
+
+        <h3>401 - API Key inválida</h3>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "error": "API Key inválida ou inativa",
+  "code": "API_KEY_INVALID"
+}</code></pre>
+        </div>
+        <p><strong>Solução:</strong> Verifique se a API Key está correta e não foi revogada.</p>
+
+        <h2>Rate Limiting</h2>
+        <p>A API possui limites de requisições para garantir estabilidade:</p>
+
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Endpoint</th>
+                <th>Limite</th>
+                <th>Janela</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Geral</td>
+                <td>100 req</td>
+                <td>1 min</td>
+              </tr>
+              <tr>
+                <td>Criação de cobranças</td>
+                <td>60 req</td>
+                <td>1 min</td>
+              </tr>
+              <tr>
+                <td>Webhooks</td>
+                <td>500 req</td>
+                <td>1 min</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Headers de Rate Limit</h3>
+        <p>Cada resposta inclui headers informativos:</p>
+        <div class="code-block">
+          <pre><code>X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 95
+X-RateLimit-Reset: 1705761300</code></pre>
+        </div>
+      </section>
+
+      <!-- Charges Section -->
+      <section id="charges" class="content-section">
+        <div class="section-header">
+          <h1>Cobranças</h1>
+          <p class="section-description">Entenda como funcionam as cobranças na ZucroPay</p>
+        </div>
+
+        <h2>O que é uma Cobrança?</h2>
+        <p>Uma cobrança (charge) representa uma solicitação de pagamento. Quando você cria uma cobrança, geramos o meio de pagamento (QR Code PIX, link de cartão, boleto) para o cliente pagar.</p>
+
+        <h2>Tipos de Cobrança</h2>
+
+        <h3>PIX</h3>
+        <p>Pagamento instantâneo via PIX. Confirmação em segundos.</p>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "billing_type": "PIX",
+  "value": 99.90
+}</code></pre>
+        </div>
+        <p><strong>Retorno:</strong> QR Code + código copia-e-cola</p>
+
+        <h3>Cartão de Crédito</h3>
+        <p>Pagamento com cartão de crédito. Suporta parcelamento.</p>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "billing_type": "CREDIT_CARD",
+  "value": 99.90
+}</code></pre>
+        </div>
+        <p><strong>Retorno:</strong> Link de pagamento ou processo via token</p>
+
+        <h3>Link de Pagamento (UNDEFINED)</h3>
+        <p>Cria um link onde o cliente escolhe como pagar.</p>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "billing_type": "UNDEFINED",
+  "value": 99.90
+}</code></pre>
+        </div>
+        <p><strong>Retorno:</strong> URL do checkout</p>
+
+        <h2>Status das Cobranças</h2>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="badge pending">PENDING</span></td>
+                <td>Aguardando pagamento</td>
+              </tr>
+              <tr>
+                <td><span class="badge success">RECEIVED</span></td>
+                <td>Pagamento confirmado</td>
+              </tr>
+              <tr>
+                <td><span class="badge warning">OVERDUE</span></td>
+                <td>Pagamento vencido</td>
+              </tr>
+              <tr>
+                <td><span class="badge info">REFUNDED</span></td>
+                <td>Pagamento estornado</td>
+              </tr>
+              <tr>
+                <td><span class="badge error">CANCELLED</span></td>
+                <td>Cobrança cancelada</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2>Valores</h2>
+        <p>Cada cobrança tem:</p>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Campo</th>
+                <th>Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>value</code></td>
+                <td>Valor bruto cobrado do cliente</td>
+              </tr>
+              <tr>
+                <td><code>net_value</code></td>
+                <td>Valor líquido que você recebe</td>
+              </tr>
+              <tr>
+                <td><code>platform_fee</code></td>
+                <td>Taxa da plataforma</td>
+              </tr>
+              <tr>
+                <td><code>reserve_amount</code></td>
+                <td>Valor em reserva (5%)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Exemplo</h3>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "value": 100.00,
+  "net_value": 86.93,
+  "platform_fee": 8.49,
+  "reserve_amount": 4.58
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- Payments Section -->
+      <section id="payments" class="content-section">
+        <div class="section-header">
+          <h1>Pagamentos</h1>
+          <p class="section-description">Como funcionam os pagamentos na ZucroPay</p>
+        </div>
+
+        <h2>Métodos de Pagamento</h2>
+        <p>A ZucroPay suporta os principais métodos de pagamento do Brasil:</p>
+
+        <div class="card-grid cols-3">
+          <div class="card">
+            <div class="card-icon">⚡</div>
+            <h3>PIX</h3>
+            <p>Transferência instantânea</p>
+            <ul>
+              <li>Confirmação em segundos</li>
+              <li>Disponível 24/7</li>
+              <li>Sem limite de valor</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-icon">💳</div>
+            <h3>Cartão de Crédito</h3>
+            <p>Parcelamento em até 12x</p>
+            <ul>
+              <li>Visa, Mastercard, Elo</li>
+              <li>Amex, Hipercard</li>
+              <li>Tokenização segura</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-icon">📄</div>
+            <h3>Boleto</h3>
+            <p>Pagamento tradicional</p>
+            <ul>
+              <li>Vencimento configurável</li>
+              <li>Compensação 1-3 dias</li>
+              <li>Código de barras</li>
+            </ul>
+          </div>
+        </div>
+
+        <h2>PIX - Como Funciona</h2>
+        <ol>
+          <li>Você cria uma cobrança PIX</li>
+          <li>Recebe QR Code + código copia-e-cola</li>
+          <li>Cliente paga no app do banco</li>
+          <li>Pagamento confirmado instantaneamente</li>
+          <li>Você recebe webhook de confirmação</li>
+        </ol>
+
+        <h3>Criando Cobrança PIX</h3>
+        <div class="code-block">
+          <pre><code class="language-javascript">const response = await fetch('https://api.appzucropay.com/api/v1/charges', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-API-Key': 'zp_sua_api_key'
+  },
+  body: JSON.stringify({
+    billing_type: 'PIX',
+    value: 99.90,
+    description: 'Meu Produto',
+    customer: {
+      name: 'Cliente',
+      cpf_cnpj: '12345678900'
+    }
+  })
+});
+
+const data = await response.json();
+
+// Exibir QR Code
+document.getElementById('qrcode').src = data.pix.qr_code;
+
+// Código para copiar
+document.getElementById('pixCode').textContent = data.pix.copy_paste;</code></pre>
+          <button class="copy-btn">Copiar</button>
+        </div>
+
+        <h2>Parcelamento (Cartão)</h2>
+        <p>O valor mínimo por parcela é R$ 5,00.</p>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Parcelas</th>
+                <th>Taxa Adicional</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>1x</td><td>0%</td></tr>
+              <tr><td>2x</td><td>2,49%</td></tr>
+              <tr><td>3x</td><td>4,98%</td></tr>
+              <tr><td>6x</td><td>9,96%</td></tr>
+              <tr><td>12x</td><td>19,92%</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Webhooks Section -->
+      <section id="webhooks" class="content-section">
+        <div class="section-header">
+          <h1>Webhooks</h1>
+          <p class="section-description">Receba notificações em tempo real sobre pagamentos</p>
+        </div>
+
+        <h2>O que são Webhooks?</h2>
+        <p>Webhooks são notificações HTTP enviadas automaticamente quando eventos acontecem na sua conta. Com webhooks, você não precisa ficar consultando o status das cobranças - a ZucroPay avisa você quando algo acontece.</p>
+
+        <h2>Eventos Disponíveis</h2>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Evento</th>
+                <th>Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>payment.received</code></td><td>Pagamento confirmado</td></tr>
+              <tr><td><code>payment.refunded</code></td><td>Pagamento estornado</td></tr>
+              <tr><td><code>payment.overdue</code></td><td>Pagamento vencido</td></tr>
+              <tr><td><code>withdrawal.completed</code></td><td>Saque realizado</td></tr>
+              <tr><td><code>withdrawal.rejected</code></td><td>Saque rejeitado</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2>Formato do Payload</h2>
+        <p>Quando um evento ocorre, enviamos um POST para sua URL:</p>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "event": "payment.received",
+  "data": {
+    "payment_id": "abc123-def456",
+    "value": 99.90,
+    "net_value": 93.91,
+    "status": "RECEIVED",
+    "billing_type": "PIX",
+    "customer": {
+      "name": "João Silva",
+      "email": "joao@email.com"
+    }
+  },
+  "timestamp": "2026-01-20T13:05:00.000Z"
+}</code></pre>
+        </div>
+
+        <h2>Implementando seu Webhook</h2>
+        
+        <div class="code-tabs">
+          <div class="code-tab-buttons">
+            <button class="code-tab-btn active" data-tab="node">Node.js</button>
+            <button class="code-tab-btn" data-tab="php">PHP</button>
+            <button class="code-tab-btn" data-tab="python">Python</button>
+          </div>
+          <div class="code-tab-content active" data-tab="node">
+            <div class="code-block">
+              <pre><code class="language-javascript">const express = require('express');
+const app = express();
+
+app.use(express.json());
+
+app.post('/webhook', (req, res) => {
+  const { event, data, timestamp } = req.body;
+  const secret = req.headers['x-webhook-secret'];
+  
+  // Valide o secret se configurado
+  if (secret && secret !== process.env.WEBHOOK_SECRET) {
+    return res.status(401).send('Invalid secret');
+  }
+  
+  switch (event) {
+    case 'payment.received':
+      console.log('Pagamento recebido!', data.payment_id);
+      // Liberar produto, enviar email, etc.
+      liberarProduto(data);
+      break;
+      
+    case 'payment.refunded':
+      console.log('Pagamento estornado!', data.payment_id);
+      // Reverter acesso, notificar, etc.
+      break;
+  }
+  
+  // IMPORTANTE: Sempre retorne 200
+  res.status(200).send('OK');
+});
+
+app.listen(3000);</code></pre>
+              <button class="copy-btn">Copiar</button>
+            </div>
+          </div>
+          <div class="code-tab-content" data-tab="php">
+            <div class="code-block">
+              <pre><code class="language-php">&lt;?php
+// webhook.php
+
+$payload = file_get_contents('php://input');
+$data = json_decode($payload, true);
+
+// Validar secret
+$receivedSecret = $_SERVER['HTTP_X_WEBHOOK_SECRET'] ?? '';
+if ($receivedSecret !== getenv('WEBHOOK_SECRET')) {
+    http_response_code(401);
+    exit('Invalid secret');
+}
+
+// Processar evento
+switch ($data['event']) {
+    case 'payment.received':
+        $paymentId = $data['data']['payment_id'];
+        // Liberar produto
+        liberarProduto($paymentId);
+        
+        // Enviar email
+        enviarEmailConfirmacao($data['data']['customer']['email']);
+        break;
+        
+    case 'payment.refunded':
+        // Reverter acesso
+        revogarAcesso($data['data']['payment_id']);
+        break;
+}
+
+// IMPORTANTE: Sempre retorne 200
+http_response_code(200);
+echo json_encode(['received' => true]);</code></pre>
+              <button class="copy-btn">Copiar</button>
+            </div>
+          </div>
+          <div class="code-tab-content" data-tab="python">
+            <div class="code-block">
+              <pre><code class="language-python">from flask import Flask, request, jsonify
+import os
+
+app = Flask(__name__)
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    data = request.json
+    secret = request.headers.get('X-Webhook-Secret')
+    
+    # Validar secret
+    if secret != os.environ.get('WEBHOOK_SECRET'):
+        return jsonify({'error': 'Invalid secret'}), 401
+    
+    event = data.get('event')
+    payload = data.get('data')
+    
+    if event == 'payment.received':
+        print(f"Pagamento recebido: {payload['payment_id']}")
+        # Liberar produto
+        liberar_produto(payload)
+        
+    elif event == 'payment.refunded':
+        print(f"Pagamento estornado: {payload['payment_id']}")
+        # Reverter acesso
+    
+    # IMPORTANTE: Sempre retorne 200
+    return jsonify({'received': True}), 200
+
+if __name__ == '__main__':
+    app.run(port=5000)</code></pre>
+              <button class="copy-btn">Copiar</button>
+            </div>
+          </div>
+        </div>
+
+        <h2>Boas Práticas</h2>
+        <div class="accordion">
+          <div class="accordion-item">
+            <button class="accordion-header">
+              <span>⏱️ Responda rápido</span>
+              <svg class="accordion-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6,9 12,15 18,9"></polyline>
+              </svg>
+            </button>
+            <div class="accordion-content">
+              <p>Seu endpoint deve responder em até <strong>5 segundos</strong> com status <code>200</code>. Se precisar fazer processamento demorado, salve o evento e processe em background.</p>
+            </div>
+          </div>
+          <div class="accordion-item">
+            <button class="accordion-header">
+              <span>🔄 Seja idempotente</span>
+              <svg class="accordion-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6,9 12,15 18,9"></polyline>
+              </svg>
+            </button>
+            <div class="accordion-content">
+              <p>Podemos reenviar webhooks em caso de falha. Seu código deve ser capaz de processar o mesmo evento múltiplas vezes sem duplicar ações.</p>
+            </div>
+          </div>
+          <div class="accordion-item">
+            <button class="accordion-header">
+              <span>🛡️ Valide o secret</span>
+              <svg class="accordion-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6,9 12,15 18,9"></polyline>
+              </svg>
+            </button>
+            <div class="accordion-content">
+              <p>Configure um secret e valide em cada webhook recebido para garantir que a requisição veio da ZucroPay.</p>
+            </div>
+          </div>
+        </div>
+
+        <h2>Retentativas</h2>
+        <p>Se seu endpoint retornar erro (status != 2xx) ou timeout, tentamos novamente:</p>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Tentativa</th>
+                <th>Intervalo</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>1ª</td><td>Imediata</td></tr>
+              <tr><td>2ª</td><td>5 segundos</td></tr>
+              <tr><td>3ª</td><td>30 segundos</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Fees Section -->
+      <section id="fees" class="content-section">
+        <div class="section-header">
+          <h1>Taxas e Tarifas</h1>
+          <p class="section-description">Entenda como funcionam as taxas da ZucroPay</p>
+        </div>
+
+        <h2>Visão Geral</h2>
+        <p>A ZucroPay cobra uma taxa por transação que varia conforme o método de pagamento. Não há mensalidade ou taxa de setup.</p>
+
+        <h2>Taxas por Método</h2>
+        <div class="card-grid cols-3">
+          <div class="card highlight">
+            <div class="card-icon">⚡</div>
+            <h3>PIX</h3>
+            <p class="price"><strong>5,99%</strong> + R$ 2,50 fixo</p>
+            <p>Confirmação instantânea</p>
+          </div>
+          <div class="card highlight">
+            <div class="card-icon">💳</div>
+            <h3>Cartão de Crédito</h3>
+            <p class="price"><strong>5,99%</strong> + R$ 2,50 fixo</p>
+            <p>+ 2,49% por parcela</p>
+          </div>
+          <div class="card highlight">
+            <div class="card-icon">📄</div>
+            <h3>Boleto</h3>
+            <p class="price"><strong>5,99%</strong> + R$ 2,50 fixo</p>
+            <p>Compensação em 1-3 dias</p>
+          </div>
+        </div>
+
+        <h2>Exemplo PIX - R$ 100,00</h2>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Valor</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Valor da venda</td><td>R$ 100,00</td></tr>
+              <tr><td>Taxa percentual (5,99%)</td><td>- R$ 5,99</td></tr>
+              <tr><td>Taxa fixa</td><td>- R$ 2,50</td></tr>
+              <tr><td>Reserva (5%)</td><td>- R$ 4,58</td></tr>
+              <tr class="highlight"><td><strong>Você recebe</strong></td><td><strong>R$ 86,93</strong></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout info">
+          A reserva de 5% é liberada após 30 dias automaticamente.
+        </div>
+
+        <h2>Reserva de Segurança</h2>
+        <p>5% de cada venda fica reservado por 30 dias como garantia contra:</p>
+        <ul>
+          <li>Chargebacks</li>
+          <li>Estornos</li>
+          <li>Disputas</li>
+        </ul>
+        <p>Após 30 dias, o valor é <strong>automaticamente liberado</strong> para seu saldo disponível.</p>
+      </section>
+
+      <!-- API Overview Section -->
+      <section id="api-overview" class="content-section">
+        <div class="section-header">
+          <h1>API Reference</h1>
+          <p class="section-description">Documentação completa da API ZucroPay</p>
+        </div>
+
+        <h2>URL Base</h2>
+        <p>Todas as requisições devem ser feitas para:</p>
+        <div class="code-block">
+          <pre><code>https://api.appzucropay.com</code></pre>
+          <button class="copy-btn" data-copy="https://api.appzucropay.com">Copiar</button>
+        </div>
+
+        <h2>Autenticação</h2>
+        <p>Todas as requisições devem incluir sua API Key:</p>
+        <div class="code-block">
+          <pre><code>X-API-Key: zp_sua_api_key_aqui</code></pre>
+        </div>
+
+        <h2>Endpoints Disponíveis</h2>
+
+        <h3>Cobranças</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Método</th>
+                <th>Endpoint</th>
+                <th>Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="method post">POST</span></td>
+                <td><code>/api/v1/charges</code></td>
+                <td>Criar nova cobrança</td>
+              </tr>
+              <tr>
+                <td><span class="method get">GET</span></td>
+                <td><code>/api/v1/charges/:id</code></td>
+                <td>Consultar cobrança</td>
+              </tr>
+              <tr>
+                <td><span class="method get">GET</span></td>
+                <td><code>/api/v1/charges</code></td>
+                <td>Listar cobranças</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Saldo</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Método</th>
+                <th>Endpoint</th>
+                <th>Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="method get">GET</span></td>
+                <td><code>/api/v1/balance</code></td>
+                <td>Consultar saldo</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Webhooks</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Método</th>
+                <th>Endpoint</th>
+                <th>Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="method post">POST</span></td>
+                <td><code>/api/webhooks</code></td>
+                <td>Criar webhook</td>
+              </tr>
+              <tr>
+                <td><span class="method get">GET</span></td>
+                <td><code>/api/webhooks</code></td>
+                <td>Listar webhooks</td>
+              </tr>
+              <tr>
+                <td><span class="method delete">DELETE</span></td>
+                <td><code>/api/webhooks/:id</code></td>
+                <td>Deletar webhook</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2>Códigos de Status</h2>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Código</th>
+                <th>Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>200</code></td><td>Sucesso</td></tr>
+              <tr><td><code>201</code></td><td>Criado com sucesso</td></tr>
+              <tr><td><code>400</code></td><td>Requisição inválida</td></tr>
+              <tr><td><code>401</code></td><td>Não autenticado</td></tr>
+              <tr><td><code>403</code></td><td>Sem permissão</td></tr>
+              <tr><td><code>404</code></td><td>Não encontrado</td></tr>
+              <tr><td><code>429</code></td><td>Rate limit excedido</td></tr>
+              <tr><td><code>500</code></td><td>Erro interno</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2>Formato de Erros</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "error": "Mensagem de erro",
+  "code": "ERROR_CODE",
+  "details": {}
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- API Charges Create Section -->
+      <section id="api-charges-create" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method post">POST</span>
+            <code>/api/v1/charges</code>
+          </div>
+          <h1>Criar Cobrança</h1>
+          <p class="section-description">Cria uma nova cobrança PIX, Cartão ou link de pagamento</p>
+        </div>
+
+        <h2>Request Body</h2>
+        <div class="params-table">
+          <div class="param-row">
+            <div class="param-name">billing_type <span class="required">obrigatório</span></div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Tipo de cobrança: <code>PIX</code>, <code>CREDIT_CARD</code> ou <code>UNDEFINED</code></div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">value <span class="required">obrigatório</span></div>
+            <div class="param-type">number</div>
+            <div class="param-desc">Valor da cobrança em reais (ex: 99.90)</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">description</div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Descrição da cobrança</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">customer</div>
+            <div class="param-type">object</div>
+            <div class="param-desc">Dados do cliente (name, email, cpf_cnpj, phone)</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">external_reference</div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Referência externa (ID do seu sistema)</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">callback_url</div>
+            <div class="param-type">string</div>
+            <div class="param-desc">URL para receber notificações de pagamento</div>
+          </div>
+        </div>
+
+        <h2>Exemplo de Request</h2>
+        <div class="code-tabs">
+          <div class="code-tab-buttons">
+            <button class="code-tab-btn active" data-tab="curl">cURL</button>
+            <button class="code-tab-btn" data-tab="javascript">JavaScript</button>
+          </div>
+          <div class="code-tab-content active" data-tab="curl">
+            <div class="code-block">
+              <pre><code class="language-bash">curl -X POST https://api.appzucropay.com/api/v1/charges \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: zp_sua_api_key_aqui" \
+  -d '{
+    "billing_type": "PIX",
+    "value": 99.90,
+    "description": "Produto Premium",
+    "customer": {
+      "name": "João Silva",
+      "email": "joao@email.com",
+      "cpf_cnpj": "12345678900"
+    },
+    "external_reference": "PEDIDO-123"
+  }'</code></pre>
+              <button class="copy-btn">Copiar</button>
+            </div>
+          </div>
+          <div class="code-tab-content" data-tab="javascript">
+            <div class="code-block">
+              <pre><code class="language-javascript">const response = await fetch('https://api.appzucropay.com/api/v1/charges', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-API-Key': 'zp_sua_api_key_aqui'
+  },
+  body: JSON.stringify({
+    billing_type: 'PIX',
+    value: 99.90,
+    description: 'Produto Premium',
+    customer: {
+      name: 'João Silva',
+      email: 'joao@email.com',
+      cpf_cnpj: '12345678900'
+    },
+    external_reference: 'PEDIDO-123'
+  })
+});
+
+const data = await response.json();</code></pre>
+              <button class="copy-btn">Copiar</button>
+            </div>
+          </div>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "id": "abc123-def456-ghi789",
+  "object": "charge",
+  "billing_type": "PIX",
+  "status": "PENDING",
+  "value": 99.90,
+  "net_value": 93.91,
+  "platform_fee": 5.99,
+  "pix": {
+    "txid": "zp1234567890abcdefghijklmnop",
+    "qr_code": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
+    "copy_paste": "00020126580014br.gov.bcb.pix0136...",
+    "expires_at": "2026-01-20T14:00:00.000Z"
+  },
+  "created_at": "2026-01-20T13:00:00.000Z"
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- API Charges Get Section -->
+      <section id="api-charges-get" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <code>/api/v1/charges/{id}</code>
+          </div>
+          <h1>Consultar Cobrança</h1>
+          <p class="section-description">Consulta os detalhes de uma cobrança específica</p>
+        </div>
+
+        <h2>Path Parameters</h2>
+        <div class="params-table">
+          <div class="param-row">
+            <div class="param-name">id <span class="required">obrigatório</span></div>
+            <div class="param-type">string</div>
+            <div class="param-desc">ID da cobrança</div>
+          </div>
+        </div>
+
+        <h2>Exemplo de Request</h2>
+        <div class="code-block">
+          <pre><code class="language-bash">curl -X GET https://api.appzucropay.com/api/v1/charges/abc123-def456 \
+  -H "X-API-Key: zp_sua_api_key_aqui"</code></pre>
+          <button class="copy-btn">Copiar</button>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "id": "abc123-def456-ghi789",
+  "object": "charge",
+  "billing_type": "PIX",
+  "status": "RECEIVED",
+  "value": 99.90,
+  "net_value": 93.91,
+  "description": "Produto Premium",
+  "pix": {
+    "txid": "zp1234567890abcdefghijklmnop",
+    "qr_code": "...",
+    "copy_paste": "..."
+  },
+  "payment_date": "2026-01-20T13:05:00.000Z",
+  "created_at": "2026-01-20T13:00:00.000Z"
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- API Charges List Section -->
+      <section id="api-charges-list" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <code>/api/v1/charges</code>
+          </div>
+          <h1>Listar Cobranças</h1>
+          <p class="section-description">Lista todas as cobranças com filtros opcionais</p>
+        </div>
+
+        <h2>Query Parameters</h2>
+        <div class="params-table">
+          <div class="param-row">
+            <div class="param-name">status</div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Filtrar por status: <code>PENDING</code>, <code>RECEIVED</code>, <code>OVERDUE</code>, <code>REFUNDED</code></div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">billing_type</div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Filtrar por tipo: <code>PIX</code>, <code>CREDIT_CARD</code>, <code>BOLETO</code></div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">limit</div>
+            <div class="param-type">number</div>
+            <div class="param-desc">Número máximo de resultados (máx: 100, padrão: 50)</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">offset</div>
+            <div class="param-type">number</div>
+            <div class="param-desc">Offset para paginação (padrão: 0)</div>
+          </div>
+        </div>
+
+        <h2>Exemplo de Request</h2>
+        <div class="code-block">
+          <pre><code class="language-bash">curl -X GET "https://api.appzucropay.com/api/v1/charges?status=RECEIVED&limit=10" \
+  -H "X-API-Key: zp_sua_api_key_aqui"</code></pre>
+          <button class="copy-btn">Copiar</button>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "object": "list",
+  "data": [
+    {
+      "id": "abc123-def456",
+      "billing_type": "PIX",
+      "status": "RECEIVED",
+      "value": 99.90,
+      "description": "Produto A",
+      "created_at": "2026-01-20T13:00:00.000Z"
+    },
+    {
+      "id": "xyz789-uvw123",
+      "billing_type": "CREDIT_CARD",
+      "status": "RECEIVED",
+      "value": 149.90,
+      "description": "Produto B",
+      "created_at": "2026-01-19T10:30:00.000Z"
+    }
+  ],
+  "total": 156,
+  "has_more": true
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- API Balance Section -->
+      <section id="api-balance" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method get">GET</span>
+            <code>/api/v1/balance</code>
+          </div>
+          <h1>Consultar Saldo</h1>
+          <p class="section-description">Consulta o saldo disponível, reservado e total da conta</p>
+        </div>
+
+        <h2>Exemplo de Request</h2>
+        <div class="code-block">
+          <pre><code class="language-bash">curl -X GET https://api.appzucropay.com/api/v1/balance \
+  -H "X-API-Key: zp_sua_api_key_aqui"</code></pre>
+          <button class="copy-btn">Copiar</button>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "object": "balance",
+  "available": 1500.00,
+  "reserved": 75.00,
+  "total": 1575.00
+}</code></pre>
+        </div>
+
+        <h2>Sobre o Saldo</h2>
+        <h3>Saldo Disponível</h3>
+        <p>É o valor que você pode sacar a qualquer momento.</p>
+
+        <h3>Saldo Reservado</h3>
+        <p>5% de cada venda fica em reserva por 30 dias como garantia contra chargebacks e estornos. Após esse período, o valor é automaticamente liberado para o saldo disponível.</p>
+
+        <div class="callout info">
+          O saldo reservado é uma medida de segurança padrão do mercado de pagamentos. Ele protege tanto você quanto a plataforma contra fraudes.
+        </div>
+      </section>
+
+      <!-- API Webhooks Create Section -->
+      <section id="api-webhooks-create" class="content-section">
+        <div class="section-header">
+          <div class="endpoint-header">
+            <span class="method post">POST</span>
+            <code>/api/webhooks</code>
+          </div>
+          <h1>Criar Webhook</h1>
+          <p class="section-description">Registra um novo endpoint de webhook para receber notificações</p>
+        </div>
+
+        <h2>Request Body</h2>
+        <div class="params-table">
+          <div class="param-row">
+            <div class="param-name">url <span class="required">obrigatório</span></div>
+            <div class="param-type">string</div>
+            <div class="param-desc">URL do endpoint que receberá as notificações</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">events <span class="required">obrigatório</span></div>
+            <div class="param-type">array</div>
+            <div class="param-desc">Lista de eventos: <code>payment.received</code>, <code>payment.failed</code>, <code>payment.expired</code>, <code>withdrawal.approved</code>, <code>withdrawal.rejected</code></div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">secret</div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Chave secreta para validar assinaturas (gerada automaticamente se não fornecida)</div>
+          </div>
+        </div>
+
+        <h2>Exemplo de Request</h2>
+        <div class="code-block">
+          <pre><code class="language-bash">curl -X POST https://api.appzucropay.com/api/webhooks \
+  -H "Authorization: Bearer seu_token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://seusite.com/webhooks/zucropay",
+    "events": ["payment.received", "payment.failed"]
+  }'</code></pre>
+          <button class="copy-btn">Copiar</button>
+        </div>
+
+        <h2>Response</h2>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "success": true,
+  "webhook": {
+    "id": "wh_abc123",
+    "url": "https://seusite.com/webhooks/zucropay",
+    "events": ["payment.received", "payment.failed"],
+    "secret": "whsec_xyz789",
+    "active": true
+  }
+}</code></pre>
+        </div>
+      </section>
+
+      <!-- SDK JavaScript Section -->
+      <section id="sdk-javascript" class="content-section">
+        <div class="section-header">
+          <h1>JavaScript / Node.js</h1>
+          <p class="section-description">Integração com JavaScript e Node.js</p>
+        </div>
+
+        <h2>Instalação</h2>
+        <p>Você pode usar fetch nativo ou axios para integrar com a API ZucroPay.</p>
+        <div class="code-block">
+          <pre><code class="language-bash">npm install axios</code></pre>
+          <button class="copy-btn">Copiar</button>
+        </div>
+
+        <h2>Configuração</h2>
+        <div class="code-block">
+          <pre><code class="language-javascript">const ZUCROPAY_API_KEY = 'sua_api_key';
+const ZUCROPAY_BASE_URL = 'https://api.appzucropay.com';
+
+const api = axios.create({
+  baseURL: ZUCROPAY_BASE_URL,
+  headers: {
+    'X-API-Key': ZUCROPAY_API_KEY,
+    'Content-Type': 'application/json'
+  }
+});</code></pre>
+          <button class="copy-btn">Copiar</button>
+        </div>
+
+        <h2>Criar Cobrança PIX</h2>
+        <div class="code-block">
+          <pre><code class="language-javascript">async function criarCobrancaPix(valor, descricao, cliente) {
+  try {
+    const response = await api.post('/api/charges', {
+      amount: valor,
+      description: descricao,
+      billing_type: 'PIX',
+      customer: {
+        name: cliente.nome,
+        cpf: cliente.cpf,
+        email: cliente.email
+      },
+      expiration_minutes: 30
+    });
+
+    if (response.data.success) {
+      console.log('QR Code:', response.data.charge.pix_qr_code);
+      console.log('Copia e Cola:', response.data.charge.pix_copy_paste);
+      return response.data.charge;
+    }
+  } catch (error) {
+    console.error('Erro ao criar cobrança:', error.response?.data);
+    throw error;
+  }
+}
+
+// Uso
+const cobranca = await criarCobrancaPix(
+  99.90, 
+  'Produto XYZ',
+  { nome: 'João Silva', cpf: '12345678900', email: 'joao@email.com' }
+);</code></pre>
+          <button class="copy-btn">Copiar</button>
+        </div>
+
+        <h2>Classe Completa</h2>
+        <div class="code-block">
+          <pre><code class="language-javascript">class ZucroPay {
+  constructor(apiKey) {
+    this.apiKey = apiKey;
+    this.baseUrl = 'https://api.appzucropay.com';
+  }
+
+  async request(method, endpoint, data = null) {
+    const options = {
+      method,
+      headers: {
+        'X-API-Key': this.apiKey,
+        'Content-Type': 'application/json'
+      }
+    };
+
+    if (data) {
+      options.body = JSON.stringify(data);
+    }
+
+    const response = await fetch(`${this.baseUrl}${endpoint}`, options);
+    return response.json();
+  }
+
+  // Cobranças
+  async criarCobranca(data) {
+    return this.request('POST', '/api/charges', data);
+  }
+
+  async buscarCobranca(id) {
+    return this.request('GET', `/api/charges/${id}`);
+  }
+
+  async listarCobrancas() {
+    return this.request('GET', '/api/charges');
+  }
+
+  // Saldo
+  async saldo() {
+    return this.request('GET', '/api/users/balance');
+  }
+}
+
+// Uso
+const zucropay = new ZucroPay('sua_api_key');
+const cobranca = await zucropay.criarCobranca({
+  amount: 100,
+  description: 'Teste',
+  billing_type: 'PIX',
+  customer: { name: 'Cliente', cpf: '12345678900' }
+});</code></pre>
+          <button class="copy-btn">Copiar</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
