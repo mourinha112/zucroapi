@@ -673,32 +673,33 @@ export async function adminRoutes(app: FastifyInstance) {
     return reply.send({ success: true, verifications: formattedVerifications });
   });
 
-  // Aprovar/Rejeitar verificação (ação sensível)
-  app.post('/verifications/:id/status', {
-    preHandler: [sensitiveActionRateLimit, authenticateAdmin],
-  }, async (request, reply) => {
-    const currentUser = request.currentUser!;
-    const { id } = request.params as { id: string };
-    const body = request.body as { status: 'approved' | 'rejected'; reason?: string };
-
+  // Função auxiliar para processar aprovação/rejeição
+  const processVerificationStatus = async (
+    currentUser: any,
+    verificationId: string,
+    status: 'approved' | 'rejected',
+    reason?: string
+  ) => {
     const verification = await prisma.userVerification.update({
-      where: { id },
+      where: { id: verificationId },
       data: {
-        status: body.status,
-        rejection_reason: body.reason,
+        status: status,
+        rejection_reason: reason,
         reviewed_by: currentUser.id,
         reviewed_at: new Date(),
       },
     });
 
     // Atualizar status do usuário
+    // Se aprovado, também atualizar account_status para 'active'
     await prisma.user.update({
       where: { id: verification.user_id },
       data: {
-        verification_status: body.status,
+        verification_status: status,
         verification_reviewed_at: new Date(),
         verification_reviewed_by: currentUser.id,
-        verification_rejection_reason: body.reason,
+        verification_rejection_reason: reason,
+        ...(status === 'approved' && { account_status: 'active', identity_verified: true }),
       },
     });
 
@@ -706,14 +707,64 @@ export async function adminRoutes(app: FastifyInstance) {
     await prisma.adminLog.create({
       data: {
         admin_id: currentUser.id,
-        action: `${body.status}_verification`,
+        action: `${status}_verification`,
         target_type: 'verification',
-        target_id: id,
-        details: { status: body.status, reason: body.reason },
+        target_id: verificationId,
+        details: { status, reason },
       },
     });
 
-    return reply.send({ success: true, verification });
+    return verification;
+  };
+
+  // Aprovar/Rejeitar verificação via status (ação sensível)
+  app.post('/verifications/:id/status', {
+    preHandler: [sensitiveActionRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    const currentUser = request.currentUser!;
+    const { id } = request.params as { id: string };
+    const body = request.body as { status: 'approved' | 'rejected'; reason?: string };
+
+    try {
+      const verification = await processVerificationStatus(currentUser, id, body.status, body.reason);
+      return reply.send({ success: true, verification });
+    } catch (error: any) {
+      console.error('Erro ao atualizar verificação:', error);
+      return reply.status(500).send({ success: false, error: error.message });
+    }
+  });
+
+  // Aprovar verificação (endpoint direto)
+  app.post('/verifications/:id/approve', {
+    preHandler: [sensitiveActionRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    const currentUser = request.currentUser!;
+    const { id } = request.params as { id: string };
+
+    try {
+      const verification = await processVerificationStatus(currentUser, id, 'approved');
+      return reply.send({ success: true, message: 'Verificação aprovada com sucesso', verification });
+    } catch (error: any) {
+      console.error('Erro ao aprovar verificação:', error);
+      return reply.status(500).send({ success: false, error: error.message });
+    }
+  });
+
+  // Rejeitar verificação (endpoint direto)
+  app.post('/verifications/:id/reject', {
+    preHandler: [sensitiveActionRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    const currentUser = request.currentUser!;
+    const { id } = request.params as { id: string };
+    const body = request.body as { reason?: string };
+
+    try {
+      const verification = await processVerificationStatus(currentUser, id, 'rejected', body.reason || 'Documentos inválidos');
+      return reply.send({ success: true, message: 'Verificação rejeitada', verification });
+    } catch (error: any) {
+      console.error('Erro ao rejeitar verificação:', error);
+      return reply.status(500).send({ success: false, error: error.message });
+    }
   });
 
   // Configurações do Gateway (EfiBank)
