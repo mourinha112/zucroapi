@@ -31,6 +31,7 @@ model User {
   verification_reviewed_at  DateTime? @db.Timestamptz
   verification_reviewed_by  String?   @db.Uuid
   verification_rejection_reason String?
+  verification_attempts         Int       @default(0) // Contador de tentativas de verificação (máx 3)
   // Campos de risco
   chargeback_count          Int       @default(0)
   refund_count              Int       @default(0)
