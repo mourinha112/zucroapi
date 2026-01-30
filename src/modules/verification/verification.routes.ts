@@ -103,11 +103,22 @@ export async function verificationRoutes(app: FastifyInstance) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
 
+    // Campos adicionais opcionais
+    let fullName: string | null = null;
+    let birthDate: string | null = null;
+    let documentNumber: string | null = null;
+
     try {
       for await (const part of parts) {
         if (part.type === 'field') {
           if (part.fieldname === 'document_type') {
             documentType = part.value as string;
+          } else if (part.fieldname === 'full_name') {
+            fullName = part.value as string;
+          } else if (part.fieldname === 'birth_date') {
+            birthDate = part.value as string;
+          } else if (part.fieldname === 'document_number') {
+            documentNumber = part.value as string;
           }
         } else if (part.type === 'file') {
           // Validar tipo de arquivo
@@ -151,6 +162,12 @@ export async function verificationRoutes(app: FastifyInstance) {
         });
       }
 
+      // Buscar dados do usuário para preencher campos faltantes
+      const userInfo = await prisma.user.findUnique({
+        where: { id: user.id },
+        select: { name: true, cpf_cnpj: true },
+      });
+
       // Criar ou atualizar verificação no banco (user_id é unique)
       const verification = await prisma.userVerification.upsert({
         where: { user_id: user.id },
@@ -160,6 +177,9 @@ export async function verificationRoutes(app: FastifyInstance) {
           selfie_url: selfieFile,
           document_front_url: documentFrontFile,
           document_back_url: documentBackFile,
+          full_name: fullName || userInfo?.name || null,
+          birth_date: birthDate ? new Date(birthDate) : null,
+          document_number: documentNumber || userInfo?.cpf_cnpj || null,
           status: 'pending',
         },
         update: {
@@ -167,6 +187,9 @@ export async function verificationRoutes(app: FastifyInstance) {
           selfie_url: selfieFile,
           document_front_url: documentFrontFile,
           document_back_url: documentBackFile,
+          full_name: fullName || userInfo?.name || null,
+          birth_date: birthDate ? new Date(birthDate) : null,
+          document_number: documentNumber || userInfo?.cpf_cnpj || null,
           status: 'pending',
           rejection_reason: null,
           reviewed_at: null,

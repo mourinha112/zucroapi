@@ -632,14 +632,45 @@ export async function adminRoutes(app: FastifyInstance) {
         ...(query.status && { status: query.status }),
       },
       orderBy: { created_at: 'desc' },
-      include: {
+      select: {
+        id: true,
+        user_id: true,
+        document_type: true,
+        document_front_url: true,
+        document_back_url: true,
+        selfie_url: true,
+        full_name: true,
+        birth_date: true,
+        document_number: true,
+        status: true,
+        reviewed_at: true,
+        reviewed_by: true,
+        rejection_reason: true,
+        admin_notes: true,
+        created_at: true,
         user: {
-          select: { id: true, name: true, email: true },
+          select: { 
+            id: true, 
+            name: true, 
+            email: true,
+            cpf_cnpj: true,
+            phone: true,
+          },
         },
       },
     });
 
-    return reply.send({ success: true, verifications });
+    // Formatar as datas e URLs para o frontend
+    const formattedVerifications = verifications.map((v) => ({
+      ...v,
+      birth_date: v.birth_date ? new Date(v.birth_date).toLocaleDateString('pt-BR') : null,
+      // Se document_number não foi preenchido, usar cpf_cnpj do usuário
+      document_number: v.document_number || v.user?.cpf_cnpj || null,
+      // Se full_name não foi preenchido, usar name do usuário
+      full_name: v.full_name || v.user?.name || null,
+    }));
+
+    return reply.send({ success: true, verifications: formattedVerifications });
   });
 
   // Aprovar/Rejeitar verificação (ação sensível)
