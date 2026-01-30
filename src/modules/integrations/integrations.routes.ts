@@ -47,9 +47,40 @@ export async function integrationsRoutes(app: FastifyInstance) {
           create: 'POST /api/v1/charges',
           get: 'GET /api/v1/charges/:id',
           list: 'GET /api/v1/charges',
+          refund: 'POST /api/v1/charges/:id/refund',
+        },
+        customers: {
+          create: 'POST /api/v1/customers',
+          get: 'GET /api/v1/customers/:id',
+          list: 'GET /api/v1/customers',
+        },
+        payment_links: {
+          create: 'POST /api/v1/payment-links',
+          get: 'GET /api/v1/payment-links/:id',
+          list: 'GET /api/v1/payment-links',
+          deactivate: 'DELETE /api/v1/payment-links/:id',
+        },
+        products: {
+          create: 'POST /api/v1/products',
+          get: 'GET /api/v1/products/:id',
+          list: 'GET /api/v1/products',
+          update: 'PUT /api/v1/products/:id',
+          delete: 'DELETE /api/v1/products/:id',
+        },
+        transactions: {
+          list: 'GET /api/v1/transactions',
+        },
+        withdrawals: {
+          create: 'POST /api/v1/withdrawals',
+          list: 'GET /api/v1/withdrawals',
         },
         balance: {
           get: 'GET /api/v1/balance',
+        },
+        webhooks: {
+          create: 'POST /api/v1/webhooks',
+          list: 'GET /api/v1/webhooks',
+          delete: 'DELETE /api/v1/webhooks/:id',
         },
       },
     });
@@ -429,5 +460,587 @@ export async function integrationsRoutes(app: FastifyInstance) {
     }
 
     return reply.send({ success: true, message: 'API Key revogada' });
+  });
+
+  // ========================================
+  // CUSTOMERS - Gerenciar clientes
+  // ========================================
+  app.post('/customers', {
+    preHandler: [integratorRateLimit, authenticateApiKey],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.apiUser!;
+    const body = request.body as {
+      name: string;
+      email?: string;
+      cpf_cnpj?: string;
+      phone?: string;
+    };
+
+    if (!body.name) {
+      return reply.status(400).send({ error: 'Nome é obrigatório' });
+    }
+
+    // Criar ou buscar cliente na tabela de pagamentos (usamos metadata para clientes)
+    const customer = {
+      id: `cus_${crypto.randomBytes(12).toString('hex')}`,
+      name: body.name,
+      email: body.email || null,
+      cpf_cnpj: body.cpf_cnpj || null,
+      phone: body.phone || null,
+      user_id: user.id,
+      created_at: new Date().toISOString(),
+    };
+
+    return reply.status(201).send({
+      object: 'customer',
+      ...customer,
+    });
+  });
+
+  app.get('/customers', {
+    preHandler: [integratorRateLimit, authenticateApiKey],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    // Por enquanto, retorna lista vazia (clientes são armazenados inline nos pagamentos)
+    return reply.send({
+      object: 'list',
+      data: [],
+      total: 0,
+      has_more: false,
+    });
+  });
+
+  // ========================================
+  // PAYMENT LINKS - Gerenciar links
+  // ========================================
+  app.post('/payment-links', {
+    preHandler: [integratorRateLimit, authenticateApiKey],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.apiUser!;
+    const body = request.body as {
+      name: string;
+      description?: string;
+      value: number;
+      billing_type?: 'PIX' | 'CREDIT_CARD' | 'UNDEFINED';
+    };
+
+    if (!body.name || !body.value) {
+      return reply.status(400).send({ error: 'Nome e valor são obrigatórios' });
+    }
+
+    const link = await prisma.paymentLink.create({
+      data: {
+        user_id: user.id,
+        name: body.name,
+        description: body.description || '',
+        amount: body.value,
+        billing_type: body.billing_type || 'UNDEFINED',
+        asaas_payment_link_id: `api_${Date.now()}`,
+        asaas_link_url: '',
+      },
+    });
+
+    const checkoutUrl = `https://dashboard.appzucropay.com/checkout/${link.id}`;
+
+    await prisma.paymentLink.update({
+      where: { id: link.id },
+      data: { asaas_link_url: checkoutUrl },
+    });
+
+    return reply.status(201).send({
+      object: 'payment_link',
+      id: link.id,
+      name: link.name,
+      description: link.description,
+      value: Number(link.amount),
+      billing_type: link.billing_type,
+      checkout_url: checkoutUrl,
+      active: link.active,
+      created_at: link.created_at,
+    });
+  });
+
+  app.get('/payment-links', {
+    preHandler: [integratorRateLimit, authenticateApiKey],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.apiUser!;
+    const query = request.query as { limit?: string; offset?: string };
+
+    const links = await prisma.paymentLink.findMany({
+      where: { user_id: user.id },
+      orderBy: { created_at: 'desc' },
+      take: Math.min(parseInt(query.limit || '50'), 100),
+      skip: parseInt(query.offset || '0'),
+    });
+
+    return reply.send({
+      object: 'list',
+      data: links.map((l) => ({
+        id: l.id,
+        name: l.name,
+        value: Number(l.amount),
+        billing_type: l.billing_type,
+        checkout_url: l.asaas_link_url,
+        active: l.active,
+        total_received: Number(l.total_received),
+        created_at: l.created_at,
+      })),
+      total: links.length,
+    });
+  });
+
+  app.get('/payment-links/:id', {
+    preHandler: [integratorRateLimit, authenticateApiKey],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.apiUser!;
+    const { id } = request.params as { id: string };
+
+    const link = await prisma.paymentLink.findFirst({
+      where: { id, user_id: user.id },
+    });
+
+    if (!link) {
+      return reply.status(404).send({ error: 'Link não encontrado' });
+    }
+
+    return reply.send({
+      object: 'payment_link',
+      id: link.id,
+      name: link.name,
+      description: link.description,
+      value: Number(link.amount),
+      billing_type: link.billing_type,
+      checkout_url: link.asaas_link_url,
+      active: link.active,
+      total_received: Number(link.total_received),
+      created_at: link.created_at,
+    });
+  });
+
+  app.delete('/payment-links/:id', {
+    preHandler: [integratorRateLimit, authenticateApiKey],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.apiUser!;
+    const { id } = request.params as { id: string };
+
+    const result = await prisma.paymentLink.updateMany({
+      where: { id, user_id: user.id },
+      data: { active: false },
+    });
+
+    if (result.count === 0) {
+      return reply.status(404).send({ error: 'Link não encontrado' });
+    }
+
+    return reply.send({ success: true, message: 'Link desativado' });
+  });
+
+  // ========================================
+  // PRODUCTS - Gerenciar produtos
+  // ========================================
+  app.post('/products', {
+    preHandler: [integratorRateLimit, authenticateApiKey],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.apiUser!;
+    const body = request.body as {
+      name: string;
+      description?: string;
+      price: number;
+      image_url?: string;
+      stock?: number;
+    };
+
+    if (!body.name || !body.price) {
+      return reply.status(400).send({ error: 'Nome e preço são obrigatórios' });
+    }
+
+    const product = await prisma.product.create({
+      data: {
+        user_id: user.id,
+        name: body.name,
+        description: body.description || '',
+        price: body.price,
+        image_url: body.image_url || null,
+        stock: body.stock,
+        active: true,
+      },
+    });
+
+    return reply.status(201).send({
+      object: 'product',
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      price: Number(product.price),
+      image_url: product.image_url,
+      stock: product.stock,
+      active: product.active,
+      created_at: product.created_at,
+    });
+  });
+
+  app.get('/products', {
+    preHandler: [integratorRateLimit, authenticateApiKey],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.apiUser!;
+    const query = request.query as { limit?: string; offset?: string };
+
+    const products = await prisma.product.findMany({
+      where: { user_id: user.id },
+      orderBy: { created_at: 'desc' },
+      take: Math.min(parseInt(query.limit || '50'), 100),
+      skip: parseInt(query.offset || '0'),
+    });
+
+    return reply.send({
+      object: 'list',
+      data: products.map((p) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        price: Number(p.price),
+        image_url: p.image_url,
+        stock: p.stock,
+        active: p.active,
+        created_at: p.created_at,
+      })),
+      total: products.length,
+    });
+  });
+
+  app.get('/products/:id', {
+    preHandler: [integratorRateLimit, authenticateApiKey],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.apiUser!;
+    const { id } = request.params as { id: string };
+
+    const product = await prisma.product.findFirst({
+      where: { id, user_id: user.id },
+    });
+
+    if (!product) {
+      return reply.status(404).send({ error: 'Produto não encontrado' });
+    }
+
+    return reply.send({
+      object: 'product',
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      price: Number(product.price),
+      image_url: product.image_url,
+      stock: product.stock,
+      active: product.active,
+      created_at: product.created_at,
+    });
+  });
+
+  app.put('/products/:id', {
+    preHandler: [integratorRateLimit, authenticateApiKey],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.apiUser!;
+    const { id } = request.params as { id: string };
+    const body = request.body as {
+      name?: string;
+      description?: string;
+      price?: number;
+      image_url?: string;
+      stock?: number;
+      active?: boolean;
+    };
+
+    const product = await prisma.product.updateMany({
+      where: { id, user_id: user.id },
+      data: {
+        ...(body.name && { name: body.name }),
+        ...(body.description !== undefined && { description: body.description }),
+        ...(body.price && { price: body.price }),
+        ...(body.image_url !== undefined && { image_url: body.image_url }),
+        ...(body.stock !== undefined && { stock: body.stock }),
+        ...(body.active !== undefined && { active: body.active }),
+      },
+    });
+
+    if (product.count === 0) {
+      return reply.status(404).send({ error: 'Produto não encontrado' });
+    }
+
+    const updated = await prisma.product.findFirst({
+      where: { id, user_id: user.id },
+    });
+
+    return reply.send({
+      object: 'product',
+      ...updated,
+      price: Number(updated?.price),
+    });
+  });
+
+  app.delete('/products/:id', {
+    preHandler: [integratorRateLimit, authenticateApiKey],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.apiUser!;
+    const { id } = request.params as { id: string };
+
+    const result = await prisma.product.deleteMany({
+      where: { id, user_id: user.id },
+    });
+
+    if (result.count === 0) {
+      return reply.status(404).send({ error: 'Produto não encontrado' });
+    }
+
+    return reply.send({ success: true, message: 'Produto excluído' });
+  });
+
+  // ========================================
+  // TRANSACTIONS - Histórico de transações
+  // ========================================
+  app.get('/transactions', {
+    preHandler: [integratorRateLimit, authenticateApiKey],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.apiUser!;
+    const query = request.query as { 
+      type?: string; 
+      limit?: string; 
+      offset?: string;
+    };
+
+    const transactions = await prisma.transaction.findMany({
+      where: {
+        user_id: user.id,
+        ...(query.type && { type: query.type }),
+      },
+      orderBy: { created_at: 'desc' },
+      take: Math.min(parseInt(query.limit || '50'), 100),
+      skip: parseInt(query.offset || '0'),
+    });
+
+    return reply.send({
+      object: 'list',
+      data: transactions.map((t) => ({
+        id: t.id,
+        type: t.type,
+        amount: Number(t.amount),
+        status: t.status,
+        description: t.description,
+        created_at: t.created_at,
+      })),
+      total: transactions.length,
+    });
+  });
+
+  // ========================================
+  // WITHDRAWALS - Solicitar saques
+  // ========================================
+  app.post('/withdrawals', {
+    preHandler: [integratorRateLimit, authenticateApiKey],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.apiUser!;
+    const body = request.body as {
+      amount: number;
+      pix_key?: string;
+    };
+
+    if (!body.amount || body.amount <= 0) {
+      return reply.status(400).send({ error: 'Valor inválido' });
+    }
+
+    // Verificar saldo
+    const userData = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { balance: true },
+    });
+
+    if (!userData || Number(userData.balance) < body.amount) {
+      return reply.status(400).send({ error: 'Saldo insuficiente' });
+    }
+
+    // Criar saque
+    const withdrawal = await prisma.withdrawal.create({
+      data: {
+        user_id: user.id,
+        amount: body.amount,
+        pix_key: body.pix_key || '',
+        status: 'pending',
+      },
+    });
+
+    // Deduzir do saldo
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        balance: { decrement: body.amount },
+      },
+    });
+
+    return reply.status(201).send({
+      object: 'withdrawal',
+      id: withdrawal.id,
+      amount: Number(withdrawal.amount),
+      status: withdrawal.status,
+      created_at: withdrawal.created_at,
+    });
+  });
+
+  app.get('/withdrawals', {
+    preHandler: [integratorRateLimit, authenticateApiKey],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.apiUser!;
+    const query = request.query as { status?: string; limit?: string; offset?: string };
+
+    const withdrawals = await prisma.withdrawal.findMany({
+      where: {
+        user_id: user.id,
+        ...(query.status && { status: query.status }),
+      },
+      orderBy: { created_at: 'desc' },
+      take: Math.min(parseInt(query.limit || '50'), 100),
+      skip: parseInt(query.offset || '0'),
+    });
+
+    return reply.send({
+      object: 'list',
+      data: withdrawals.map((w) => ({
+        id: w.id,
+        amount: Number(w.amount),
+        status: w.status,
+        pix_key: w.pix_key,
+        created_at: w.created_at,
+      })),
+      total: withdrawals.length,
+    });
+  });
+
+  // ========================================
+  // REFUNDS - Estornar cobranças
+  // ========================================
+  app.post('/charges/:id/refund', {
+    preHandler: [integratorRateLimit, authenticateApiKey],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.apiUser!;
+    const { id } = request.params as { id: string };
+    const body = request.body as { amount?: number; reason?: string };
+
+    const payment = await prisma.payment.findFirst({
+      where: { id, user_id: user.id },
+    });
+
+    if (!payment) {
+      return reply.status(404).send({ error: 'Cobrança não encontrada' });
+    }
+
+    if (payment.status !== 'RECEIVED') {
+      return reply.status(400).send({ error: 'Apenas cobranças pagas podem ser estornadas' });
+    }
+
+    const refundAmount = body.amount || Number(payment.value);
+
+    // Atualizar pagamento
+    await prisma.payment.update({
+      where: { id: payment.id },
+      data: {
+        status: 'REFUNDED',
+        metadata: {
+          ...(payment.metadata as any),
+          refund_amount: refundAmount,
+          refund_reason: body.reason || 'Solicitado via API',
+          refunded_at: new Date().toISOString(),
+        },
+      },
+    });
+
+    // Deduzir do saldo do vendedor
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        balance: { decrement: refundAmount },
+      },
+    });
+
+    return reply.send({
+      object: 'refund',
+      id: `ref_${crypto.randomBytes(8).toString('hex')}`,
+      charge_id: payment.id,
+      amount: refundAmount,
+      reason: body.reason || 'Solicitado via API',
+      status: 'succeeded',
+      created_at: new Date().toISOString(),
+    });
+  });
+
+  // ========================================
+  // WEBHOOKS - Gerenciar webhooks via API
+  // ========================================
+  app.post('/webhooks', {
+    preHandler: [integratorRateLimit, authenticateApiKey],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.apiUser!;
+    const body = request.body as {
+      url: string;
+      events?: string[];
+    };
+
+    if (!body.url) {
+      return reply.status(400).send({ error: 'URL é obrigatória' });
+    }
+
+    const webhook = await prisma.webhook.create({
+      data: {
+        user_id: user.id,
+        url: body.url,
+        events: body.events || ['payment.received', 'payment.refunded'],
+        secret: `whsec_${crypto.randomBytes(16).toString('hex')}`,
+      },
+    });
+
+    return reply.status(201).send({
+      object: 'webhook',
+      id: webhook.id,
+      url: webhook.url,
+      events: webhook.events,
+      secret: webhook.secret,
+      status: webhook.status,
+      created_at: webhook.created_at,
+    });
+  });
+
+  app.get('/webhooks', {
+    preHandler: [integratorRateLimit, authenticateApiKey],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.apiUser!;
+
+    const webhooks = await prisma.webhook.findMany({
+      where: { user_id: user.id },
+      orderBy: { created_at: 'desc' },
+    });
+
+    return reply.send({
+      object: 'list',
+      data: webhooks.map((w) => ({
+        id: w.id,
+        url: w.url,
+        events: w.events,
+        status: w.status,
+        created_at: w.created_at,
+      })),
+      total: webhooks.length,
+    });
+  });
+
+  app.delete('/webhooks/:id', {
+    preHandler: [integratorRateLimit, authenticateApiKey],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.apiUser!;
+    const { id } = request.params as { id: string };
+
+    const result = await prisma.webhook.deleteMany({
+      where: { id, user_id: user.id },
+    });
+
+    if (result.count === 0) {
+      return reply.status(404).send({ error: 'Webhook não encontrado' });
+    }
+
+    return reply.send({ success: true, message: 'Webhook removido' });
   });
 }

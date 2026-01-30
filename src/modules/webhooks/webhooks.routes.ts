@@ -4,6 +4,57 @@ import { webhookQueue } from '../../queues/webhook.queue';
 import { authenticate, standardRateLimit, webhookRateLimit, createResourceRateLimit } from '../../middlewares';
 import { notifySale } from '../push/push.service';
 
+// Função para enviar postback/webhook para o usuário
+async function sendUserWebhook(userId: string, event: string, data: any) {
+  const webhooks = await prisma.webhook.findMany({
+    where: { user_id: userId, status: 'active' },
+  });
+
+  for (const webhook of webhooks) {
+    try {
+      const response = await fetch(webhook.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Webhook-Event': event,
+          ...(webhook.secret && { 'X-Webhook-Secret': webhook.secret }),
+        },
+        body: JSON.stringify({
+          event,
+          data,
+          timestamp: new Date().toISOString(),
+        }),
+      });
+
+      // Logar resultado
+      await prisma.webhookLog.create({
+        data: {
+          webhook_id: webhook.id,
+          event_type: event,
+          payload: data,
+          response_code: response.status,
+          response_body: await response.text().catch(() => ''),
+          success: response.ok,
+        },
+      });
+
+      console.log(`[POSTBACK] Enviado para ${webhook.url}: ${response.status}`);
+    } catch (error: any) {
+      await prisma.webhookLog.create({
+        data: {
+          webhook_id: webhook.id,
+          event_type: event,
+          payload: data,
+          response_code: 0,
+          response_body: error.message,
+          success: false,
+        },
+      });
+      console.error(`[POSTBACK] Erro ao enviar para ${webhook.url}:`, error.message);
+    }
+  }
+}
+
 export async function webhooksRoutes(app: FastifyInstance) {
   // Webhook da EfiBank (público - não requer auth, com rate limit específico)
   app.post('/efi', {
@@ -99,19 +150,147 @@ export async function webhooksRoutes(app: FastifyInstance) {
 
           console.log(`[WEBHOOK] Cobrança ${chargeId} atualizada: ${newStatus}`);
 
-          // Enviar notificação push se foi confirmado
+          // Se foi confirmado, enviar notificações
           if (newStatus === 'RECEIVED') {
+            // Enviar notificação push
             try {
               await notifySale(payment.user_id, Number(payment.value), 'Cliente', payment.id);
               console.log(`[WEBHOOK] Notificação push enviada para ${payment.user_id}`);
             } catch (pushError) {
               console.error('[WEBHOOK] Erro ao enviar notificação push:', pushError);
             }
+
+            // Enviar postback/webhook para o usuário
+            try {
+              await sendUserWebhook(payment.user_id, 'payment.received', {
+                payment_id: payment.id,
+                value: Number(payment.value),
+                net_value: Number(payment.net_value),
+                status: 'RECEIVED',
+                billing_type: payment.billing_type,
+              });
+              console.log(`[WEBHOOK] Postback enviado para usuário ${payment.user_id}`);
+            } catch (webhookError) {
+              console.error('[WEBHOOK] Erro ao enviar postback:', webhookError);
+            }
           }
         }
       }
     }
 
+    return reply.send({ received: true });
+  });
+
+  // Webhook do Asaas (público - recebe notificações de pagamento)
+  app.post('/asaas', {
+    preHandler: [webhookRateLimit],
+  }, async (request, reply) => {
+    const body = request.body as any;
+    
+    console.log('[WEBHOOK] ========== Asaas Webhook ==========');
+    console.log('[WEBHOOK] Body:', JSON.stringify(body, null, 2));
+
+    // Asaas envia evento no campo "event" e dados no campo "payment"
+    const event = body.event;
+    const paymentData = body.payment;
+
+    if (!paymentData || !paymentData.id) {
+      console.log('[WEBHOOK] ⚠️ Webhook Asaas sem dados de pagamento');
+      return reply.send({ received: true });
+    }
+
+    const asaasPaymentId = paymentData.id;
+    
+    // Buscar pagamento pelo asaas_payment_id
+    const payment = await prisma.payment.findFirst({
+      where: { asaas_payment_id: asaasPaymentId },
+      include: { user: true },
+    });
+
+    if (!payment) {
+      console.log(`[WEBHOOK] Pagamento Asaas não encontrado: ${asaasPaymentId}`);
+      return reply.send({ received: true });
+    }
+
+    let newStatus = payment.status;
+    
+    // Mapear status do Asaas
+    if (event === 'PAYMENT_CONFIRMED' || event === 'PAYMENT_RECEIVED' || paymentData.status === 'CONFIRMED' || paymentData.status === 'RECEIVED') {
+      newStatus = 'RECEIVED';
+    } else if (paymentData.status === 'PENDING' || paymentData.status === 'AWAITING_RISK_ANALYSIS') {
+      newStatus = 'PENDING';
+    } else if (paymentData.status === 'REFUNDED' || paymentData.status === 'REFUND_REQUESTED') {
+      newStatus = 'REFUNDED';
+    } else if (paymentData.status === 'CANCELLED' || paymentData.status === 'OVERDUE') {
+      newStatus = 'CANCELLED';
+    }
+
+    if (newStatus !== payment.status) {
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: {
+          status: newStatus,
+          payment_date: newStatus === 'RECEIVED' ? new Date() : payment.payment_date,
+        },
+      });
+
+      console.log(`[WEBHOOK] Asaas ${asaasPaymentId} atualizado: ${newStatus}`);
+
+      // Se foi confirmado, processar
+      if (newStatus === 'RECEIVED') {
+        // Atualizar saldo do usuário
+        const netValue = Number(payment.net_value) || Number(payment.value);
+        
+        await prisma.user.update({
+          where: { id: payment.user_id },
+          data: {
+            balance: { increment: netValue },
+          },
+        });
+
+        // Criar transação
+        await prisma.transaction.create({
+          data: {
+            user_id: payment.user_id,
+            type: 'deposit',
+            amount: netValue,
+            status: 'completed',
+            description: `Pagamento recebido - ${payment.description}`,
+            metadata: {
+              asaas_payment_id: asaasPaymentId,
+              payment_id: payment.id,
+              billing_type: payment.billing_type,
+            },
+          },
+        });
+
+        // Enviar notificação push
+        try {
+          const customerName = paymentData.customer?.name || 'Cliente';
+          await notifySale(payment.user_id, Number(payment.value), customerName, payment.id);
+          console.log(`[WEBHOOK] Notificação push enviada para ${payment.user_id}`);
+        } catch (pushError) {
+          console.error('[WEBHOOK] Erro ao enviar notificação push:', pushError);
+        }
+
+        // Enviar postback/webhook para o usuário
+        try {
+          await sendUserWebhook(payment.user_id, 'payment.received', {
+            payment_id: payment.id,
+            value: Number(payment.value),
+            net_value: netValue,
+            status: 'RECEIVED',
+            billing_type: payment.billing_type,
+            provider: 'asaas',
+          });
+          console.log(`[WEBHOOK] Postback Asaas enviado para usuário ${payment.user_id}`);
+        } catch (webhookError) {
+          console.error('[WEBHOOK] Erro ao enviar postback:', webhookError);
+        }
+      }
+    }
+
+    console.log('[WEBHOOK] ========================================');
     return reply.send({ received: true });
   });
 
