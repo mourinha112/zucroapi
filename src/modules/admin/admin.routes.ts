@@ -178,6 +178,7 @@ export async function adminRoutes(app: FastifyInstance) {
         account_status: true,
         verification_status: true,
         identity_verified: true,
+        payment_provider: true,
         created_at: true,
       },
     });
@@ -205,6 +206,7 @@ export async function adminRoutes(app: FastifyInstance) {
           account_status: true,
           account_status_reason: true,
           verification_status: true,
+          payment_provider: true,
           created_at: true,
           updated_at: true,
         },
@@ -525,6 +527,97 @@ export async function adminRoutes(app: FastifyInstance) {
     });
 
     return reply.send({ success: true, rates });
+  });
+
+  // ============================================
+  // ADQUIRENTE/PROVEDOR DE PAGAMENTO POR USUÁRIO
+  // ============================================
+
+  // Alterar provedor de pagamento do usuário (efibank ou asaas)
+  app.post('/users/:id/payment-provider', {
+    preHandler: [sensitiveActionRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    const currentUser = request.currentUser!;
+    const { id } = request.params as { id: string };
+    const body = request.body as { provider: 'efibank' | 'asaas' };
+
+    if (!['efibank', 'asaas'].includes(body.provider)) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Provedor inválido. Use "efibank" ou "asaas".',
+      });
+    }
+
+    try {
+      const user = await prisma.user.update({
+        where: { id },
+        data: {
+          payment_provider: body.provider,
+          updated_at: new Date(),
+        },
+      });
+
+      // Log da ação
+      await prisma.adminLog.create({
+        data: {
+          admin_id: currentUser.id,
+          action: 'change_payment_provider',
+          target_type: 'user',
+          target_id: id,
+          details: { provider: body.provider },
+        },
+      });
+
+      return reply.send({
+        success: true,
+        message: `Provedor alterado para ${body.provider.toUpperCase()}`,
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          payment_provider: user.payment_provider,
+        },
+      });
+    } catch (error: any) {
+      console.error('Erro ao alterar provedor:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error.message || 'Erro ao alterar provedor de pagamento',
+      });
+    }
+  });
+
+  // Obter provedor de pagamento do usuário
+  app.get('/users/:id/payment-provider', {
+    preHandler: [standardRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          payment_provider: true,
+          asaas_customer_id: true,
+          efi_customer_id: true,
+        },
+      });
+
+      if (!user) {
+        return reply.status(404).send({ success: false, error: 'Usuário não encontrado' });
+      }
+
+      return reply.send({
+        success: true,
+        provider: user.payment_provider || 'efibank',
+        user,
+      });
+    } catch (error: any) {
+      return reply.status(500).send({ success: false, error: error.message });
+    }
   });
 
   // Verificações de identidade pendentes

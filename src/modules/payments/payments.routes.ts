@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../../config/database';
 import { createPixCharge } from '../../providers/efibank/efi.pix';
 import { createCardCharge, payWithCardToken } from '../../providers/efibank/efi.card';
+import { createAsaasPixCharge, createAsaasCustomer } from '../../providers/asaas/asaas.pix';
 import {
   getEffectiveRates,
   calculatePixFeeSellerPays,
@@ -189,16 +190,65 @@ export async function paymentsRoutes(app: FastifyInstance) {
 
       // ========== PIX ==========
       if (body.billingType === 'PIX') {
-        // PIX sempre cobra o valor base (sem juros de parcelamento)
-        const pixResult = await createPixCharge({
-          value: baseValue,
-          description,
-          customerCpf: body.customerCpfCnpj,
-          customerName: body.customerName,
-        });
+        // Verificar qual provedor usar baseado no payment_provider do vendedor
+        const paymentProvider = link.user.payment_provider || 'efibank';
+        console.log(`[CHECKOUT PIX] Usando provedor: ${paymentProvider}`);
 
-        if (!pixResult.success) {
-          return reply.send({ success: false, error: pixResult.error, debug: pixResult.debug });
+        let pixCode = '';
+        let pixQrCode = '';
+        let paymentId = '';
+
+        if (paymentProvider === 'asaas') {
+          // ========== ASAAS PIX ==========
+          // Primeiro, garantir que o cliente existe no Asaas
+          let customerAsaasId = '';
+          
+          if (body.customerCpfCnpj) {
+            const customerResult = await createAsaasCustomer({
+              name: body.customerName,
+              cpfCnpj: body.customerCpfCnpj,
+              email: body.customerEmail,
+              phone: body.customerPhone,
+            });
+
+            if (customerResult.success) {
+              customerAsaasId = customerResult.customerId!;
+            } else {
+              return reply.send({ success: false, error: customerResult.error, debug: customerResult.debug });
+            }
+          } else {
+            return reply.send({ success: false, error: 'CPF/CNPJ é obrigatório para pagamentos via Asaas' });
+          }
+
+          const asaasResult = await createAsaasPixCharge({
+            value: baseValue,
+            description,
+            customerAsaasId,
+          });
+
+          if (!asaasResult.success) {
+            return reply.send({ success: false, error: asaasResult.error, debug: asaasResult.debug });
+          }
+
+          pixCode = asaasResult.pixCode || '';
+          pixQrCode = asaasResult.pixQrCode || '';
+          paymentId = asaasResult.paymentId || asaasResult.externalReference || '';
+        } else {
+          // ========== EFIBANK PIX ==========
+          const pixResult = await createPixCharge({
+            value: baseValue,
+            description,
+            customerCpf: body.customerCpfCnpj,
+            customerName: body.customerName,
+          });
+
+          if (!pixResult.success) {
+            return reply.send({ success: false, error: pixResult.error, debug: pixResult.debug });
+          }
+
+          pixCode = pixResult.pixCode || '';
+          pixQrCode = pixResult.pixQrCode || '';
+          paymentId = pixResult.txid || '';
         }
 
         // Calcular taxas (PIX não tem parcelamento, taxa sempre do vendedor)
@@ -214,17 +264,18 @@ export async function paymentsRoutes(app: FastifyInstance) {
             status: 'PENDING',
             description,
             due_date: new Date(),
-            efi_txid: pixResult.txid,
-            pix_qrcode: pixResult.pixQrCode,
-            pix_copy_paste: pixResult.pixCode,
+            efi_txid: paymentProvider === 'efibank' ? paymentId : null,
+            asaas_payment_id: paymentProvider === 'asaas' ? paymentId : paymentId, // Compatibilidade
+            pix_qrcode: pixQrCode,
+            pix_copy_paste: pixCode,
             payment_link_id: link.id,
-            asaas_payment_id: pixResult.txid,
             metadata: JSON.parse(JSON.stringify({
               base_value: baseValue,
               platform_fee: feeCalc.platformFee,
               reserve_amount: feeCalc.reserveAmount,
               fee_payer: feePayer,
               seller_rates: rates,
+              payment_provider: paymentProvider,
             })),
           },
         });
@@ -237,10 +288,10 @@ export async function paymentsRoutes(app: FastifyInstance) {
 
         payment = {
           id: savedPayment.id,
-          txid: pixResult.txid,
+          txid: paymentId,
           status: 'PENDING',
-          pixCode: pixResult.pixCode,
-          pixQrCode: pixResult.pixQrCode,
+          pixCode,
+          pixQrCode,
         };
       }
 

@@ -24,6 +24,10 @@ export const env = {
   EFI_CERTIFICATE_BASE64: process.env.EFI_CERTIFICATE_BASE64 || '',
   EFI_SANDBOX: process.env.EFI_SANDBOX === 'true',
   
+  // Asaas
+  ASAAS_API_KEY: process.env.ASAAS_API_KEY || '',
+  ASAAS_SANDBOX: process.env.ASAAS_SANDBOX === 'true',
+  
   // Push Notifications
   VAPID_PUBLIC_KEY: process.env.VAPID_PUBLIC_KEY || '',
   VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY || '',
