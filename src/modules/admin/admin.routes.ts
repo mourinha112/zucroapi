@@ -180,6 +180,7 @@ export async function adminRoutes(app: FastifyInstance) {
         identity_verified: true,
         payment_provider: true,
         created_at: true,
+        custom_rates: true,
       },
     });
 
