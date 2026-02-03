@@ -15,6 +15,7 @@ const registerSchema = z.object({
   name: z.string().min(2, 'Nome deve ter no mínimo 2 caracteres'),
   email: z.string().email('Email inválido'),
   password: z.string().min(6, 'Senha deve ter no mínimo 6 caracteres'),
+  person_type: z.enum(['PF', 'PJ']).default('PF'),
   cpf_cnpj: z.string().optional(),
   phone: z.string().optional(),
 });

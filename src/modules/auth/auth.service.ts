@@ -68,6 +68,7 @@ export class AuthService {
     name: string;
     email: string;
     password: string;
+    person_type?: 'PF' | 'PJ';
     cpf_cnpj?: string;
     phone?: string;
   }) {
@@ -89,6 +90,7 @@ export class AuthService {
         name: data.name,
         email: data.email.toLowerCase(),
         password_hash,
+        person_type: data.person_type || 'PF',
         cpf_cnpj: data.cpf_cnpj,
         phone: data.phone,
         account_status: 'pending',

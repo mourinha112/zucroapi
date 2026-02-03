@@ -23,6 +23,7 @@ import { integrationsRoutes } from './modules/integrations/integrations.routes';
 import { verificationRoutes } from './modules/verification/verification.routes';
 import { pushRoutes } from './modules/push/push.routes';
 import { uploadRoutes } from './modules/upload/upload.routes';
+import { checkoutRoutes } from './modules/checkout/checkout.routes';
 
 const app = Fastify({
   logger: {
@@ -203,6 +204,7 @@ async function bootstrap() {
   app.register(verificationRoutes, { prefix: '/api/verification' });
   app.register(pushRoutes, { prefix: '/api/push' });
   app.register(uploadRoutes, { prefix: '/api/upload' });
+  app.register(checkoutRoutes, { prefix: '/api/checkout' });
 
   // Global error handler
   app.setErrorHandler((error, request, reply) => {

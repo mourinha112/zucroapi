@@ -12,6 +12,7 @@ model User {
   name                      String    @db.VarChar(200)
   email                     String    @unique @db.VarChar(200)
   password_hash             String    @db.VarChar(255)
+  person_type               String    @default("PF") @db.VarChar(2) // PF = Pessoa Física, PJ = Pessoa Jurídica
   cpf_cnpj                  String?   @db.VarChar(20)
   phone                     String?   @db.VarChar(20)
   avatar                    String?
@@ -92,10 +93,53 @@ model Product {
   created_at            DateTime  @default(now()) @db.Timestamptz
   updated_at            DateTime  @default(now()) @db.Timestamptz
 
-  user          User           @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  payment_links PaymentLink[]
+  user                   User                    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  payment_links          PaymentLink[]
+  checkout_customization CheckoutCustomization?
 
   @@map("products")
+}
+
+model CheckoutCustomization {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id          String    @unique @db.Uuid
+  
+  // Imagens
+  logo_url            String?
+  banner_url          String?
+  background_url      String?
+  
+  // Cores
+  primary_color       String    @default("#5818C8") @db.VarChar(20)
+  secondary_color     String    @default("#7B2FF7") @db.VarChar(20)
+  background_color    String    @default("#FFFFFF") @db.VarChar(20)
+  text_color          String    @default("#333333") @db.VarChar(20)
+  button_color        String    @default("#5818C8") @db.VarChar(20)
+  
+  // Cronômetro de Escassez
+  timer_enabled       Boolean   @default(false)
+  timer_minutes       Int       @default(15)
+  timer_message       String    @default("Oferta expira em:") @db.VarChar(200)
+  
+  // Textos personalizados
+  custom_title        String?   @db.VarChar(200)
+  custom_description  String?
+  custom_button_text  String?   @db.VarChar(100)
+  success_message     String?
+  
+  // Configurações avançadas
+  show_logo           Boolean   @default(true)
+  show_banner         Boolean   @default(true)
+  show_timer          Boolean   @default(false)
+  show_stock          Boolean   @default(true)
+  allow_quantity      Boolean   @default(true)
+  
+  created_at          DateTime  @default(now()) @db.Timestamptz
+  updated_at          DateTime  @default(now()) @db.Timestamptz
+
+  product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@map("checkout_customizations")
 }
 
 model Payment {
