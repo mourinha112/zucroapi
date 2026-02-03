@@ -673,6 +673,57 @@ export async function adminRoutes(app: FastifyInstance) {
     return reply.send({ success: true, verifications: formattedVerifications });
   });
 
+  // Buscar verificação de um usuário específico pelo user_id
+  app.get('/verifications/user/:userId', {
+    preHandler: [standardRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    const { userId } = request.params as { userId: string };
+
+    const verification = await prisma.userVerification.findFirst({
+      where: { user_id: userId },
+      orderBy: { created_at: 'desc' },
+      select: {
+        id: true,
+        user_id: true,
+        document_type: true,
+        document_front_url: true,
+        document_back_url: true,
+        selfie_url: true,
+        full_name: true,
+        birth_date: true,
+        document_number: true,
+        status: true,
+        reviewed_at: true,
+        reviewed_by: true,
+        rejection_reason: true,
+        admin_notes: true,
+        created_at: true,
+        user: {
+          select: { 
+            id: true, 
+            name: true, 
+            email: true,
+            cpf_cnpj: true,
+            phone: true,
+          },
+        },
+      },
+    });
+
+    if (!verification) {
+      return reply.status(404).send({ success: false, error: 'Nenhum documento de verificação encontrado para este usuário' });
+    }
+
+    const formattedVerification = {
+      ...verification,
+      birth_date: verification.birth_date ? new Date(verification.birth_date).toLocaleDateString('pt-BR') : null,
+      document_number: verification.document_number || verification.user?.cpf_cnpj || null,
+      full_name: verification.full_name || verification.user?.name || null,
+    };
+
+    return reply.send({ success: true, verification: formattedVerification });
+  });
+
   // Função auxiliar para processar aprovação/rejeição
   const processVerificationStatus = async (
     currentUser: any,
