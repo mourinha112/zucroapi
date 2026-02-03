@@ -120,6 +120,7 @@ model CheckoutCustomization {
   timer_enabled       Boolean   @default(false)
   timer_minutes       Int       @default(15)
   timer_message       String    @default("Oferta expira em:") @db.VarChar(200)
+  timer_color         String    @default("#dc2626") @db.VarChar(20)
   
   // Textos personalizados
   custom_title        String?   @db.VarChar(200)
