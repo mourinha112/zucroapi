@@ -102,7 +102,7 @@ export async function authenticateAdmin(
       id: admin.id,
       email: admin.email,
       name: admin.name || 'Admin',
-      role: 'admin',
+      role: admin.role || 'admin',
     };
   } catch (err) {
     return reply.status(401).send({
