@@ -25,7 +25,13 @@ description: 'Consulta os detalhes de uma cobrança específica'
 </ResponseField>
 
 <ResponseField name="status" type="string">
-  Status: `PENDING`, `RECEIVED`, `OVERDUE`, `REFUNDED`, `CANCELLED`
+  Status da cobrança. Valores possíveis:
+  - `PENDING` - Aguardando pagamento
+  - `RECEIVED` - Pagamento confirmado/recebido
+  - `REFUSED` - Pagamento recusado pelo gateway ou banco
+  - `REFUNDED` - Pagamento estornado
+  - `CANCELLED` - Cobrança cancelada ou expirada
+  - `OVERDUE` - Cobrança vencida (boleto)
 </ResponseField>
 
 <ResponseField name="value" type="number">

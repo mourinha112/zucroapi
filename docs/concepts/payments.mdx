@@ -150,19 +150,100 @@ const response = await fetch('https://api.appzucropay.com/api/v1/charges', {
 
 Boletos têm prazo de compensação de 1-3 dias úteis após o pagamento.
 
+## Cartão de Crédito via API
+
+A API também suporta criação de cobranças via cartão de crédito. Ao criar uma cobrança com `billing_type: "CREDIT_CARD"`, a resposta incluirá um campo `payment_url` com o link para o cliente completar o pagamento.
+
+```javascript
+const response = await fetch('https://api.appzucropay.com/api/v1/charges', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-API-Key': 'zp_sua_api_key'
+  },
+  body: JSON.stringify({
+    billing_type: 'CREDIT_CARD',
+    value: 149.90,
+    description: 'Assinatura Premium',
+    customer: {
+      name: 'Maria Santos',
+      email: 'maria@email.com',
+      cpf_cnpj: '98765432100'
+    },
+    postback_url: 'https://meusite.com/webhooks/zucropay'
+  })
+});
+
+const data = await response.json();
+// Redirecionar o cliente para:
+window.location.href = data.payment_url;
+```
+
+A resposta terá o campo `payment_url` com o link seguro para o pagamento via cartão.
+
 ## Status dos Pagamentos
+
+Todos os status possíveis de uma cobrança na ZucroPay:
+
+| Status | Descrição | Quando ocorre |
+|--------|-----------|---------------|
+| `PENDING` | Aguardando pagamento | Cobrança criada, aguardando o cliente pagar |
+| `RECEIVED` | Pagamento confirmado | PIX confirmado, cartão aprovado ou boleto compensado |
+| `REFUSED` | Pagamento recusado | Cartão recusado pelo banco emissor ou gateway |
+| `REFUNDED` | Estornado | Estorno processado via API ou painel |
+| `CANCELLED` | Cancelado/Expirado | Cobrança cancelada manualmente ou PIX/boleto expirado |
+| `OVERDUE` | Vencido | Boleto passou da data de vencimento sem pagamento |
 
 ```mermaid
 stateDiagram-v2
     [*] --> PENDING: Cobrança criada
     PENDING --> RECEIVED: Pagamento confirmado
+    PENDING --> REFUSED: Recusado pelo banco
     PENDING --> OVERDUE: Prazo expirou
+    PENDING --> CANCELLED: Cancelado/expirado
     RECEIVED --> REFUNDED: Estorno solicitado
-    PENDING --> CANCELLED: Cancelado
 ```
+
+## Postback / Webhook por Cobrança
+
+Ao criar uma cobrança, você pode incluir o campo `postback_url`. A ZucroPay enviará um POST para essa URL sempre que o status da cobrança mudar.
+
+**Eventos enviados:**
+
+| Evento | Quando |
+|--------|--------|
+| `charge.paid` | Pagamento confirmado (RECEIVED) |
+| `charge.refused` | Pagamento recusado (REFUSED) |
+| `charge.refunded` | Estorno processado (REFUNDED) |
+| `charge.cancelled` | Cobrança cancelada (CANCELLED) |
+| `charge.overdue` | Cobrança vencida (OVERDUE) |
+
+**Exemplo de payload enviado:**
+
+```json
+{
+  "event": "charge.paid",
+  "charge": {
+    "id": "abc123-def456",
+    "status": "RECEIVED",
+    "billing_type": "PIX",
+    "value": 99.90,
+    "net_value": 93.91,
+    "description": "Produto Premium",
+    "external_reference": "PEDIDO-123",
+    "payment_date": "2026-01-20T13:05:00.000Z"
+  },
+  "timestamp": "2026-01-20T13:05:01.000Z"
+}
+```
+
+**Headers enviados:**
+- `Content-Type: application/json`
+- `X-ZucroPay-Event: charge.paid` (nome do evento)
+- `User-Agent: ZucroPay-Webhook/1.0`
 
 ## Estornos
 
-Estornos podem ser solicitados em até 90 dias após o pagamento. Entre em contato com o suporte.
+Estornos podem ser solicitados via API (`POST /api/v1/charges/:id/refund`) em até 90 dias após o pagamento.
 
 Para cartão de crédito, o estorno é processado automaticamente na fatura do cliente.

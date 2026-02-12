@@ -31,7 +31,10 @@ const createChargeSchema = z.object({
   }).optional(),
   external_reference: z.string().optional(),
   callback_url: z.string().url().optional(),
+  postback_url: z.string().url().optional(),
 });
+
+import { sendChargePostback } from '../../utils/postback';
 
 export async function integrationsRoutes(app: FastifyInstance) {
   // ========================================
@@ -43,6 +46,9 @@ export async function integrationsRoutes(app: FastifyInstance) {
       version: '1.0.0',
       documentation: 'https://docs.appzucropay.com',
       endpoints: {
+        account: {
+          get: 'GET /api/v1/account',
+        },
         charges: {
           create: 'POST /api/v1/charges',
           get: 'GET /api/v1/charges/:id',
@@ -84,6 +90,55 @@ export async function integrationsRoutes(app: FastifyInstance) {
         },
       },
     });
+  });
+
+  // ========================================
+  // Dados da Conta / Seller (para integradores)
+  // ========================================
+  app.get('/account', {
+    preHandler: [integratorRateLimit, authenticateApiKey],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const apiUser = request.apiUser!;
+
+      // Buscar dados completos do seller
+      const seller = await prisma.user.findUnique({
+        where: { id: apiUser.id },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          cpf_cnpj: true,
+          person_type: true,
+          phone: true,
+          account_status: true,
+          identity_verified: true,
+          payment_provider: true,
+          created_at: true,
+        },
+      });
+
+      if (!seller) {
+        return reply.status(404).send({ error: 'Conta não encontrada' });
+      }
+
+      return reply.send({
+        object: 'account',
+        id: seller.id,
+        name: seller.name,
+        email: seller.email,
+        document: seller.cpf_cnpj || null,
+        person_type: seller.person_type, // PF ou PJ
+        phone: seller.phone || null,
+        account_status: seller.account_status,
+        identity_verified: seller.identity_verified,
+        payment_provider: seller.payment_provider,
+        created_at: seller.created_at,
+      });
+    } catch (error: any) {
+      console.error('[API] Erro ao buscar dados da conta:', error);
+      return reply.status(500).send({ error: 'Erro interno' });
+    }
   });
 
   // ========================================
@@ -144,6 +199,7 @@ export async function integrationsRoutes(app: FastifyInstance) {
             metadata: {
               external_reference: body.external_reference,
               callback_url: body.callback_url,
+              postback_url: body.postback_url || body.callback_url,
               platform_fee: feeCalc.platformFee,
               created_via: 'api',
             },
@@ -201,6 +257,7 @@ export async function integrationsRoutes(app: FastifyInstance) {
             metadata: {
               external_reference: body.external_reference,
               callback_url: body.callback_url,
+              postback_url: body.postback_url || body.callback_url,
               platform_fee: feeCalc.platformFee,
               payment_url: linkResult.success ? linkResult.paymentUrl : null,
               created_via: 'api',
@@ -956,6 +1013,15 @@ export async function integrationsRoutes(app: FastifyInstance) {
         balance: { decrement: refundAmount },
       },
     });
+
+    // Enviar postback de estorno para a URL da cobrança (se configurada)
+    const updatedPayment = await prisma.payment.findUnique({ where: { id: payment.id } });
+    if (updatedPayment) {
+      sendChargePostback(updatedPayment, 'charge.refunded', {
+        refund_amount: refundAmount,
+        refund_reason: body.reason || 'Solicitado via API',
+      });
+    }
 
     return reply.send({
       object: 'refund',

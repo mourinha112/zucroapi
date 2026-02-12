@@ -7,6 +7,7 @@ import {
   calculateReleaseDate,
 } from '../providers/efibank/fee.calculator';
 import { notifySale } from '../modules/push/push.service';
+import { sendChargePostback } from '../utils/postback';
 
 // ============================================
 // FILAS COM REDIS (ou mock sem Redis)
@@ -201,6 +202,12 @@ async function processPixPayment(data: PixWebhookJob) {
     net_value: feeCalc.netValue,
     status: 'RECEIVED',
   });
+
+  // Enviar postback para a URL da cobrança (postback_url/callback_url)
+  const updatedPaymentForPostback = await prisma.payment.findUnique({ where: { id: payment.id } });
+  if (updatedPaymentForPostback) {
+    sendChargePostback(updatedPaymentForPostback, 'charge.paid');
+  }
 
   // Enviar notificação push para o vendedor
   try {

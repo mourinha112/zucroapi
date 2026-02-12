@@ -3,6 +3,7 @@ import { prisma } from '../../config/database';
 import { webhookQueue } from '../../queues/webhook.queue';
 import { authenticate, standardRateLimit, webhookRateLimit, createResourceRateLimit } from '../../middlewares';
 import { notifySale } from '../push/push.service';
+import { sendChargePostback } from '../../utils/postback';
 
 // Função para enviar postback/webhook para o usuário
 async function sendUserWebhook(userId: string, event: string, data: any) {
@@ -131,16 +132,29 @@ export async function webhooksRoutes(app: FastifyInstance) {
       if (payment) {
         let newStatus = payment.status;
         
-        if (body.status === 'paid' || body.status === 'approved') {
+        // Mapeamento completo de status do gateway EfiBank -> ZucroPay
+        // paid/approved/settled      -> RECEIVED  (pago)
+        // new/waiting/unpaid/pending -> PENDING   (aguardando pagamento)
+        // canceled/expired           -> CANCELLED (cancelado/expirado)
+        // refunded                   -> REFUNDED  (estornado)
+        // refused/declined           -> REFUSED   (recusado pelo gateway/banco)
+        // overdue                    -> OVERDUE   (vencido)
+        if (body.status === 'paid' || body.status === 'approved' || body.status === 'settled') {
           newStatus = 'RECEIVED';
-        } else if (body.status === 'unpaid') {
+        } else if (body.status === 'new' || body.status === 'waiting' || body.status === 'unpaid' || body.status === 'pending') {
           newStatus = 'PENDING';
-        } else if (body.status === 'canceled' || body.status === 'refunded') {
+        } else if (body.status === 'canceled' || body.status === 'expired') {
+          newStatus = 'CANCELLED';
+        } else if (body.status === 'refunded') {
           newStatus = 'REFUNDED';
+        } else if (body.status === 'refused' || body.status === 'declined') {
+          newStatus = 'REFUSED';
+        } else if (body.status === 'overdue') {
+          newStatus = 'OVERDUE';
         }
 
         if (newStatus !== payment.status) {
-          await prisma.payment.update({
+          const updatedPayment = await prisma.payment.update({
             where: { id: payment.id },
             data: {
               status: newStatus,
@@ -149,6 +163,17 @@ export async function webhooksRoutes(app: FastifyInstance) {
           });
 
           console.log(`[WEBHOOK] Cobrança ${chargeId} atualizada: ${newStatus}`);
+
+          // Enviar postback para a URL da cobrança (postback_url/callback_url)
+          const eventMap: Record<string, string> = {
+            'RECEIVED': 'charge.paid',
+            'REFUNDED': 'charge.refunded',
+            'CANCELLED': 'charge.cancelled',
+            'REFUSED': 'charge.refused',
+            'OVERDUE': 'charge.overdue',
+            'PENDING': 'charge.pending',
+          };
+          sendChargePostback(updatedPayment, eventMap[newStatus] || `charge.${newStatus.toLowerCase()}`);
 
           // Se foi confirmado, enviar notificações
           if (newStatus === 'RECEIVED') {
@@ -160,7 +185,7 @@ export async function webhooksRoutes(app: FastifyInstance) {
               console.error('[WEBHOOK] Erro ao enviar notificação push:', pushError);
             }
 
-            // Enviar postback/webhook para o usuário
+            // Enviar postback/webhook para o usuário (webhooks cadastrados)
             try {
               await sendUserWebhook(payment.user_id, 'payment.received', {
                 payment_id: payment.id,
@@ -214,19 +239,29 @@ export async function webhooksRoutes(app: FastifyInstance) {
 
     let newStatus = payment.status;
     
-    // Mapear status do Asaas
+    // Mapeamento completo de status do Asaas -> ZucroPay
+    // CONFIRMED/RECEIVED                     -> RECEIVED  (pago)
+    // PENDING/AWAITING_RISK_ANALYSIS         -> PENDING   (aguardando)
+    // REFUNDED/REFUND_REQUESTED              -> REFUNDED  (estornado)
+    // CANCELLED                              -> CANCELLED (cancelado)
+    // OVERDUE                                -> OVERDUE   (vencido)
+    // REFUSED/REPROVED/BANK_ACCOUNT_REJECTED -> REFUSED   (recusado)
     if (event === 'PAYMENT_CONFIRMED' || event === 'PAYMENT_RECEIVED' || paymentData.status === 'CONFIRMED' || paymentData.status === 'RECEIVED') {
       newStatus = 'RECEIVED';
     } else if (paymentData.status === 'PENDING' || paymentData.status === 'AWAITING_RISK_ANALYSIS') {
       newStatus = 'PENDING';
     } else if (paymentData.status === 'REFUNDED' || paymentData.status === 'REFUND_REQUESTED') {
       newStatus = 'REFUNDED';
-    } else if (paymentData.status === 'CANCELLED' || paymentData.status === 'OVERDUE') {
+    } else if (paymentData.status === 'CANCELLED') {
       newStatus = 'CANCELLED';
+    } else if (paymentData.status === 'OVERDUE') {
+      newStatus = 'OVERDUE';
+    } else if (paymentData.status === 'REFUSED' || paymentData.status === 'REPROVED' || paymentData.status === 'BANK_ACCOUNT_REJECTED') {
+      newStatus = 'REFUSED';
     }
 
     if (newStatus !== payment.status) {
-      await prisma.payment.update({
+      const updatedAsaasPayment = await prisma.payment.update({
         where: { id: payment.id },
         data: {
           status: newStatus,
@@ -235,6 +270,15 @@ export async function webhooksRoutes(app: FastifyInstance) {
       });
 
       console.log(`[WEBHOOK] Asaas ${asaasPaymentId} atualizado: ${newStatus}`);
+
+      // Enviar postback para a URL da cobrança (postback_url/callback_url)
+      const asaasEventMap: Record<string, string> = {
+        'RECEIVED': 'charge.paid',
+        'REFUNDED': 'charge.refunded',
+        'CANCELLED': 'charge.cancelled',
+        'PENDING': 'charge.pending',
+      };
+      sendChargePostback(updatedAsaasPayment, asaasEventMap[newStatus] || `charge.${newStatus.toLowerCase()}`);
 
       // Se foi confirmado, processar
       if (newStatus === 'RECEIVED') {

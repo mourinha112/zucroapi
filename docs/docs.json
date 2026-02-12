@@ -53,17 +53,23 @@
       ]
     },
     {
-      "group": "API Reference",
-      "pages": [
-        "api-reference/introduction",
-        {
-          "group": "Cobranças",
-          "pages": [
-            "api-reference/charges/create",
-            "api-reference/charges/get",
-            "api-reference/charges/list"
-          ]
-        },
+      "group":     "API Reference",
+    "pages": [
+      "api-reference/introduction",
+      {
+        "group": "Conta / Seller",
+        "pages": [
+          "api-reference/account/get"
+        ]
+      },
+      {
+        "group": "Cobranças",
+        "pages": [
+          "api-reference/charges/create",
+          "api-reference/charges/get",
+          "api-reference/charges/list"
+        ]
+      },
         {
           "group": "Saldo",
           "pages": [
