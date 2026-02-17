@@ -206,6 +206,12 @@ export async function webhooksRoutes(app: FastifyInstance) {
     return reply.send({ received: true });
   });
 
+  // Webhook do Asaas - GET para validação/teste do Asaas
+  app.get('/asaas', async (request, reply) => {
+    console.log('[WEBHOOK] GET /asaas - teste de validação do Asaas');
+    return reply.send({ success: true, message: 'Webhook Asaas ativo' });
+  });
+
   // Webhook do Asaas (público - recebe notificações de pagamento)
   app.post('/asaas', {
     preHandler: [webhookRateLimit],
@@ -213,6 +219,9 @@ export async function webhooksRoutes(app: FastifyInstance) {
     const body = request.body as any;
     
     console.log('[WEBHOOK] ========== Asaas Webhook ==========');
+    console.log('[WEBHOOK] Event:', body.event);
+    console.log('[WEBHOOK] Payment ID:', body.payment?.id);
+    console.log('[WEBHOOK] Payment Status:', body.payment?.status);
     console.log('[WEBHOOK] Body:', JSON.stringify(body, null, 2));
 
     // Asaas envia evento no campo "event" e dados no campo "payment"
