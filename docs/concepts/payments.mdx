@@ -76,29 +76,35 @@ Por padrão, o PIX expira em 1 hora. O cliente pode gerar novo código se necess
 
 ## Cartão de Crédito
 
-### Tokenização
+### Como funciona
 
-Para segurança, os dados do cartão nunca passam pelo seu servidor. Use o SDK da EfiBank para tokenizar:
+Para segurança, os dados do cartão nunca passam pelo seu servidor. A ZucroPay retorna um link de pagamento seguro onde o cliente preenche os dados do cartão.
 
-```html
-<script src="https://cdn.efipay.com.br/payment-token-efi.min.js"></script>
-
-<script>
-const result = await EfiPay.CreditCard
-  .setAccount('seu_account_id')
-  .setEnvironment('production')
-  .setCreditCardData({
-    brand: 'visa',
-    number: '4012001038443335',
-    cvv: '123',
-    expirationMonth: '12',
-    expirationYear: '2028',
-    holderName: 'JOAO SILVA',
-    holderDocument: '12345678900'
+```javascript
+// Criar cobrança de cartão
+const response = await fetch('https://api.appzucropay.com/api/v1/charges', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-API-Key': 'zp_sua_api_key'
+  },
+  body: JSON.stringify({
+    billing_type: 'CREDIT_CARD',
+    value: 149.90,
+    description: 'Produto Premium',
+    customer: {
+      name: 'Maria Santos',
+      email: 'maria@email.com',
+      cpf_cnpj: '98765432100'
+    },
+    postback_url: 'https://meusite.com/webhooks/zucropay'
   })
-  .getPaymentToken();
+});
 
-// Envie result.payment_token para sua API
+const data = await response.json();
+
+// Redirecionar cliente para o link de pagamento seguro
+window.location.href = data.payment_url;
 ```
 
 ### Parcelamento
