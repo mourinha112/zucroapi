@@ -164,22 +164,26 @@ export const createAsaasCustomer = async (data: {
   const result = await makeAsaasRequest('POST', '/customers', customerData);
 
   if (!result.success) {
-    // Se já existe, tenta buscar
-    if (result.data?.errors?.[0]?.code === 'invalid_cpfCnpj' || 
-        result.data?.errors?.[0]?.description?.includes('já cadastrado')) {
+    // Se já existe ou deu qualquer erro, tenta buscar pelo CPF/CNPJ
+    console.log('[ASAAS] Erro ao criar cliente, tentando buscar existente...', result.data);
+    
+    try {
       const searchResult = await makeAsaasRequest('GET', `/customers?cpfCnpj=${customerData.cpfCnpj}`);
       if (searchResult.success && searchResult.data?.data?.[0]) {
+        console.log('[ASAAS] Cliente existente encontrado:', searchResult.data.data[0].id);
         return {
           success: true,
           customerId: searchResult.data.data[0].id,
           customer: searchResult.data.data[0],
         };
       }
+    } catch (searchErr) {
+      console.error('[ASAAS] Erro ao buscar cliente existente:', searchErr);
     }
 
     return {
       success: false,
-      error: result.data?.errors?.[0]?.description || 'Erro ao criar cliente',
+      error: result.data?.errors?.[0]?.description || result.data?.message || 'Erro ao criar cliente no gateway',
       debug: result.data,
     };
   }

@@ -155,7 +155,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
       });
 
       if (!link) {
-        return reply.status(404).send({ success: false, error: 'Link de pagamento não encontrado' });
+        return reply.status(404).send({ success: false, message: 'Link de pagamento não encontrado', error: 'Link de pagamento não encontrado' });
       }
 
       // Buscar taxas personalizadas do vendedor
@@ -191,64 +191,97 @@ export async function paymentsRoutes(app: FastifyInstance) {
       // ========== PIX ==========
       if (body.billingType === 'PIX') {
         // Verificar qual provedor usar baseado no payment_provider do vendedor
-        const paymentProvider = link.user.payment_provider || 'efibank';
-        console.log(`[CHECKOUT PIX] Usando provedor: ${paymentProvider}`);
+        let paymentProvider = (link.user as any).payment_provider || 'efibank';
+        console.log(`[CHECKOUT PIX] Provedor configurado: ${paymentProvider}`);
 
         let pixCode = '';
         let pixQrCode = '';
         let paymentId = '';
+        let providerError = '';
 
+        // Se Asaas, tentar usar Asaas primeiro; se falhar, fallback para EfiBank
         if (paymentProvider === 'asaas') {
-          // ========== ASAAS PIX ==========
-          // Primeiro, garantir que o cliente existe no Asaas
-          let customerAsaasId = '';
-          
-          if (body.customerCpfCnpj) {
-            const customerResult = await createAsaasCustomer({
-              name: body.customerName,
-              cpfCnpj: body.customerCpfCnpj,
-              email: body.customerEmail,
-              phone: body.customerPhone,
-            });
+          let asaasSuccess = false;
 
-            if (customerResult.success) {
-              customerAsaasId = customerResult.customerId!;
-            } else {
-              return reply.send({ success: false, error: customerResult.error, debug: customerResult.debug });
+          // Asaas exige CPF/CNPJ - se não tiver, vai direto para EfiBank
+          if (body.customerCpfCnpj) {
+            try {
+              // Criar/buscar cliente no Asaas
+              const customerResult = await createAsaasCustomer({
+                name: body.customerName,
+                cpfCnpj: body.customerCpfCnpj,
+                email: body.customerEmail,
+                phone: body.customerPhone,
+              });
+
+              if (customerResult.success && customerResult.customerId) {
+                // Criar cobrança PIX no Asaas
+                const asaasResult = await createAsaasPixCharge({
+                  value: baseValue,
+                  description,
+                  customerAsaasId: customerResult.customerId,
+                });
+
+                if (asaasResult.success) {
+                  pixCode = asaasResult.pixCode || '';
+                  pixQrCode = asaasResult.pixQrCode || '';
+                  paymentId = asaasResult.paymentId || asaasResult.externalReference || '';
+                  asaasSuccess = true;
+                  console.log(`[CHECKOUT PIX] Asaas OK - paymentId: ${paymentId}`);
+                } else {
+                  providerError = asaasResult.error || 'Erro ao criar cobrança Asaas';
+                  console.error(`[CHECKOUT PIX] Asaas falhou na cobrança: ${providerError}`);
+                }
+              } else {
+                providerError = customerResult.error || 'Erro ao criar cliente Asaas';
+                console.error(`[CHECKOUT PIX] Asaas falhou no cliente: ${providerError}`);
+              }
+            } catch (asaasErr: any) {
+              providerError = asaasErr.message || 'Erro interno Asaas';
+              console.error(`[CHECKOUT PIX] Asaas exception:`, asaasErr);
             }
           } else {
-            return reply.send({ success: false, error: 'CPF/CNPJ é obrigatório para pagamentos via Asaas' });
+            console.log(`[CHECKOUT PIX] Sem CPF/CNPJ - Asaas exige, usando fallback EfiBank`);
           }
 
-          const asaasResult = await createAsaasPixCharge({
-            value: baseValue,
-            description,
-            customerAsaasId,
-          });
-
-          if (!asaasResult.success) {
-            return reply.send({ success: false, error: asaasResult.error, debug: asaasResult.debug });
+          // Fallback para EfiBank se Asaas falhou
+          if (!asaasSuccess) {
+            console.log(`[CHECKOUT PIX] Fallback para EfiBank (motivo: ${providerError || 'sem CPF'})`);
+            paymentProvider = 'efibank';
           }
+        }
 
-          pixCode = asaasResult.pixCode || '';
-          pixQrCode = asaasResult.pixQrCode || '';
-          paymentId = asaasResult.paymentId || asaasResult.externalReference || '';
-        } else {
-          // ========== EFIBANK PIX ==========
-          const pixResult = await createPixCharge({
-            value: baseValue,
-            description,
-            customerCpf: body.customerCpfCnpj,
-            customerName: body.customerName,
-          });
+        // EfiBank PIX (provedor padrão ou fallback)
+        if (paymentProvider === 'efibank') {
+          try {
+            const pixResult = await createPixCharge({
+              value: baseValue,
+              description,
+              customerCpf: body.customerCpfCnpj,
+              customerName: body.customerName,
+            });
 
-          if (!pixResult.success) {
-            return reply.send({ success: false, error: pixResult.error, debug: pixResult.debug });
+            if (!pixResult.success) {
+              const errorMsg = pixResult.error || 'Erro ao gerar cobrança PIX';
+              console.error(`[CHECKOUT PIX] EfiBank falhou: ${errorMsg}`);
+              return reply.send({ success: false, message: errorMsg, error: errorMsg });
+            }
+
+            pixCode = pixResult.pixCode || '';
+            pixQrCode = pixResult.pixQrCode || '';
+            paymentId = pixResult.txid || '';
+            console.log(`[CHECKOUT PIX] EfiBank OK - txid: ${paymentId}`);
+          } catch (efiErr: any) {
+            const errorMsg = efiErr.message || 'Erro ao processar pagamento PIX';
+            console.error(`[CHECKOUT PIX] EfiBank exception:`, efiErr);
+            return reply.send({ success: false, message: errorMsg, error: errorMsg });
           }
+        }
 
-          pixCode = pixResult.pixCode || '';
-          pixQrCode = pixResult.pixQrCode || '';
-          paymentId = pixResult.txid || '';
+        // Verificação final: se não tem pixCode, algo deu errado
+        if (!pixCode) {
+          const errorMsg = providerError || 'Não foi possível gerar o código PIX. Tente novamente.';
+          return reply.send({ success: false, message: errorMsg, error: errorMsg });
         }
 
         // Calcular taxas (PIX não tem parcelamento, taxa sempre do vendedor)
@@ -301,7 +334,8 @@ export async function paymentsRoutes(app: FastifyInstance) {
         const chargeResult = await createCardCharge({ value: grossValue, description });
 
         if (!chargeResult.success) {
-          return reply.send({ success: false, error: chargeResult.error, debug: chargeResult.debug });
+          const errorMsg = chargeResult.error || 'Erro ao criar cobrança de cartão';
+          return reply.send({ success: false, message: errorMsg, error: errorMsg });
         }
 
         // Pagar com token
@@ -323,6 +357,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
           if (!payResult.success) {
             return reply.send({
               success: false,
+              message: payResult.error || 'Erro ao processar pagamento com cartão',
               error: payResult.error,
               cardRefused: payResult.cardRefused,
               canRetry: payResult.canRetry,
@@ -418,14 +453,14 @@ export async function paymentsRoutes(app: FastifyInstance) {
             installments,
           };
         } else {
-          return reply.send({ success: false, error: 'Token do cartão é obrigatório' });
+          return reply.send({ success: false, message: 'Token do cartão é obrigatório', error: 'Token do cartão é obrigatório' });
         }
       }
 
       return reply.send({ success: true, payment });
     } catch (error: any) {
       console.error('[CHECKOUT] Erro:', error);
-      return reply.status(500).send({ success: false, error: error.message });
+      return reply.status(500).send({ success: false, message: error.message || 'Erro interno ao processar pagamento', error: error.message });
     }
   });
 
