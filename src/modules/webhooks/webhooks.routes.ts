@@ -4,6 +4,11 @@ import { webhookQueue } from '../../queues/webhook.queue';
 import { authenticate, standardRateLimit, webhookRateLimit, createResourceRateLimit } from '../../middlewares';
 import { notifySale } from '../push/push.service';
 import { sendChargePostback } from '../../utils/postback';
+import {
+  getEffectiveRates,
+  calculatePixFeeSellerPays,
+  calculateReleaseDate,
+} from '../../providers/efibank/fee.calculator';
 
 // Função para enviar postback/webhook para o usuário
 async function sendUserWebhook(userId: string, event: string, data: any) {
@@ -289,15 +294,55 @@ export async function webhooksRoutes(app: FastifyInstance) {
       };
       sendChargePostback(updatedAsaasPayment, asaasEventMap[newStatus] || `charge.${newStatus.toLowerCase()}`);
 
-      // Se foi confirmado, processar
+      // Se foi confirmado, processar (mesmo fluxo do EfiBank)
       if (newStatus === 'RECEIVED') {
-        // Atualizar saldo do usuário
-        const netValue = Number(payment.net_value) || Number(payment.value);
-        
+        const grossValue = Number(payment.value);
+
+        // Buscar taxas personalizadas do vendedor
+        const customRates = await prisma.userCustomRate.findUnique({
+          where: { user_id: payment.user_id },
+        });
+
+        const rates = await getEffectiveRates(customRates ? {
+          pix_rate: customRates.pix_rate ? Number(customRates.pix_rate) : undefined,
+        } : null);
+
+        // Calcular taxas
+        const feeCalc = calculatePixFeeSellerPays(grossValue, rates);
+
+        // Atualizar net_value no pagamento
+        await prisma.payment.update({
+          where: { id: payment.id },
+          data: {
+            net_value: feeCalc.netValue,
+            metadata: JSON.parse(JSON.stringify({
+              ...(payment.metadata as any),
+              platform_fee: feeCalc.platformFee,
+              reserve_amount: feeCalc.reserveAmount,
+              provider: 'asaas',
+            })),
+          },
+        });
+
+        // Atualizar saldo do usuário (líquido + reserva)
         await prisma.user.update({
           where: { id: payment.user_id },
           data: {
-            balance: { increment: netValue },
+            balance: { increment: feeCalc.netValue },
+            reserved_balance: { increment: feeCalc.reserveAmount },
+          },
+        });
+
+        // Criar reserva de segurança (5%)
+        await prisma.balanceReserve.create({
+          data: {
+            user_id: payment.user_id,
+            payment_id: payment.id,
+            original_amount: grossValue,
+            reserve_amount: feeCalc.reserveAmount,
+            status: 'held',
+            release_date: calculateReleaseDate(rates.reserve_days),
+            description: `Reserva 5% - ${payment.description}`,
           },
         });
 
@@ -306,21 +351,36 @@ export async function webhooksRoutes(app: FastifyInstance) {
           data: {
             user_id: payment.user_id,
             type: 'deposit',
-            amount: netValue,
+            amount: feeCalc.netValue,
             status: 'completed',
-            description: `Pagamento recebido - ${payment.description}`,
+            description: `PIX recebido (Asaas) - ${payment.description}`,
             metadata: {
               asaas_payment_id: asaasPaymentId,
               payment_id: payment.id,
               billing_type: payment.billing_type,
+              gross_value: grossValue,
+              platform_fee: feeCalc.platformFee,
+              reserve_amount: feeCalc.reserveAmount,
             },
           },
         });
 
+        // Atualizar link de pagamento se existir
+        if (payment.payment_link_id) {
+          await prisma.paymentLink.update({
+            where: { id: payment.payment_link_id },
+            data: {
+              total_received: { increment: grossValue },
+            },
+          });
+        }
+
+        console.log(`[WEBHOOK] Asaas pagamento processado: ${payment.id} - R$${feeCalc.netValue.toFixed(2)} líquido, R$${feeCalc.reserveAmount.toFixed(2)} reserva`);
+
         // Enviar notificação push
         try {
           const customerName = paymentData.customer?.name || 'Cliente';
-          await notifySale(payment.user_id, Number(payment.value), customerName, payment.id);
+          await notifySale(payment.user_id, grossValue, customerName, payment.id);
           console.log(`[WEBHOOK] Notificação push enviada para ${payment.user_id}`);
         } catch (pushError) {
           console.error('[WEBHOOK] Erro ao enviar notificação push:', pushError);
@@ -330,8 +390,8 @@ export async function webhooksRoutes(app: FastifyInstance) {
         try {
           await sendUserWebhook(payment.user_id, 'payment.received', {
             payment_id: payment.id,
-            value: Number(payment.value),
-            net_value: netValue,
+            value: grossValue,
+            net_value: feeCalc.netValue,
             status: 'RECEIVED',
             billing_type: payment.billing_type,
             provider: 'asaas',
