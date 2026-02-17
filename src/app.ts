@@ -192,6 +192,65 @@ async function bootstrap() {
     }
   });
 
+  // ========================================
+  // Rota de polling para verificar status de pagamento (checkout público)
+  // ========================================
+  app.get('/api/check-payment-status', async (request, reply) => {
+    const query = request.query as { type?: string; txid?: string; chargeId?: string; paymentId?: string };
+    
+    try {
+      let payment = null;
+
+      // Buscar por paymentId (mais confiável)
+      if (query.paymentId) {
+        payment = await prisma.payment.findUnique({
+          where: { id: query.paymentId },
+        });
+      }
+      
+      // Buscar por txid (PIX EfiBank ou Asaas)
+      if (!payment && query.txid) {
+        payment = await prisma.payment.findFirst({
+          where: {
+            OR: [
+              { efi_txid: query.txid },
+              { asaas_payment_id: query.txid },
+            ],
+          },
+        });
+      }
+
+      // Buscar por chargeId (Cartão/Boleto)
+      if (!payment && query.chargeId) {
+        payment = await prisma.payment.findFirst({
+          where: {
+            OR: [
+              { efi_charge_id: query.chargeId },
+              { asaas_payment_id: query.chargeId },
+            ],
+          },
+        });
+      }
+
+      if (!payment) {
+        return reply.send({ success: false, status: 'NOT_FOUND' });
+      }
+
+      const isConfirmed = payment.status === 'RECEIVED';
+
+      return reply.send({
+        success: true,
+        status: isConfirmed ? 'CONFIRMED' : payment.status,
+        payment_id: payment.id,
+        value: Number(payment.value),
+        billing_type: payment.billing_type,
+      });
+    } catch (error: any) {
+      console.error('[CHECK STATUS] Erro:', error);
+      return reply.send({ success: false, status: 'ERROR', error: error.message });
+    }
+  });
+
   // API Routes
   app.register(authRoutes, { prefix: '/api/auth' });
   app.register(usersRoutes, { prefix: '/api/users' });
