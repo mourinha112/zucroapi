@@ -64,6 +64,7 @@ export const makeAsaasRequest = async (
     headers: {
       'access_token': accessToken,
       'Content-Type': 'application/json',
+      'User-Agent': 'ZucroPay/1.0',
       ...(postData && { 'Content-Length': Buffer.byteLength(postData) }),
     },
   };
