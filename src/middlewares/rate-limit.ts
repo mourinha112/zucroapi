@@ -149,14 +149,14 @@ export const integratorRateLimit = createRateLimiter({
 });
 
 /**
- * Rate limit rigoroso para ações sensíveis
- * 5 requests por hora
+ * Rate limit para ações sensíveis (admin)
+ * 60 requests por minuto por IP
  */
 export const sensitiveActionRateLimit = createRateLimiter({
-  max: 5,
-  windowMs: 60 * 60 * 1000, // 1 hora
+  max: 60,
+  windowMs: 60 * 1000, // 1 minuto
   keyPrefix: 'rl:sensitive:',
-  message: 'Ação limitada. Tente novamente mais tarde.',
+  message: 'Muitas ações em sequência. Aguarde um momento.',
 });
 
 /**
