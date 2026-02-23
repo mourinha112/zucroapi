@@ -6,7 +6,7 @@ export const DEFAULT_RATES = {
   card_rate: 5.99,       // % taxa cartão
   boleto_rate: 5.99,     // % taxa boleto
   fixed_fee: 2.50,       // Taxa fixa por transação
-  installment_fee: 3.69, // % juros por parcela (pago pelo comprador quando fee_payer=buyer)
+  installment_fee: 2.95, // % juros por parcela (pago pelo comprador quando fee_payer=buyer)
   reserve_percent: 0.05, // 5% de reserva
   reserve_days: 30,      // Dias para liberar reserva
   withdrawal_fee: 2.00,  // Taxa de saque

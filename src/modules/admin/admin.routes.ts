@@ -1003,7 +1003,7 @@ export async function adminRoutes(app: FastifyInstance) {
             card_rate: 5.99,
             boleto_rate: 5.99,
             fixed_fee: 2.50,
-            installment_fee: 3.69,
+            installment_fee: 2.95,
             reserve_percent: 0.05,
             reserve_days: 30,
             withdrawal_fee: 2.00,
