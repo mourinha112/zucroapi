@@ -124,7 +124,7 @@ export const createAsaasCardToken = async (cardData: {
 
     console.log('[ASAAS CARD TOKEN] Criando token:', tokenData);
 
-    const result = await makeAsaasRequest('POST', '/cards/tokenize', tokenData);
+    const result = await makeAsaasRequest('POST', '/creditCard/tokenizeCreditCard', tokenData);
 
     if (!result.success) {
       console.error('[ASAAS CARD TOKEN] Erro:', result.data);
