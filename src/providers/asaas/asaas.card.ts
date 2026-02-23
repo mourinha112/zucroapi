@@ -67,6 +67,7 @@ export const createAsaasCardPayment = async (data: AsaasCardPaymentData): Promis
 
     if (data.installmentCount && data.installmentCount > 1) {
       chargeData.installmentCount = data.installmentCount;
+      chargeData.installmentValue = Number((data.value / data.installmentCount).toFixed(2));
     }
 
     console.log('[ASAAS CARD] Criando pagamento:', JSON.stringify(chargeData));
@@ -197,6 +198,7 @@ export const payWithAsaasCardToken = async (
 
     if (installmentCount > 1) {
       paymentData.installmentCount = installmentCount;
+      paymentData.installmentValue = Number((value / installmentCount).toFixed(2));
     }
 
     console.log('[ASAAS CARD TOKEN] Pagando com token:', paymentData);
