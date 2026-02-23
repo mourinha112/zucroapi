@@ -502,8 +502,10 @@ export async function paymentsRoutes(app: FastifyInstance) {
 
     const link = await prisma.paymentLink.findFirst({
       where: { id: linkId, active: true },
-      include: { product: true },
+      include: { product: true, user: true },
     });
+
+    console.log('[CHECKOUT GET] Link:', link?.id, '- User:', (link?.user as any)?.name, '- Provider:', (link?.user as any)?.payment_provider);
 
     if (!link) {
       return reply.status(404).send({ success: false, error: 'Link não encontrado' });
