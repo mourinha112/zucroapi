@@ -131,6 +131,41 @@ export async function paymentsRoutes(app: FastifyInstance) {
     return reply.send({ success: true, transactions });
   });
 
+  // ========== Tokenizar cartão com Asaas ==========
+  app.post('/tokenize-card', {
+    preHandler: [checkoutRateLimit],
+  }, async (request, reply) => {
+    const body = request.body as {
+      provider: 'asaas' | 'efibank';
+      cardNumber: string;
+      holderName: string;
+      expiryMonth: string;
+      expiryYear: string;
+      ccv: string;
+    };
+
+    try {
+      if (body.provider === 'asaas') {
+        const { createAsaasCardToken } = await import('../../providers/asaas/asaas.card');
+        const result = await createAsaasCardToken({
+          number: body.cardNumber,
+          holderName: body.holderName,
+          expiryMonth: body.expiryMonth,
+          expiryYear: body.expiryYear,
+          ccv: body.ccv,
+        });
+        
+        return reply.send(result);
+      } else {
+        // EfiBank tokenization needs SDK on frontend
+        return reply.send({ success: false, error: 'Use SDK EfiBank para tokenizar' });
+      }
+    } catch (error: any) {
+      console.error('[Tokenize] Erro:', error);
+      return reply.status(500).send({ success: false, error: error.message });
+    }
+  });
+
   // ========== CHECKOUT PÚBLICO (sem autenticação, com rate limit) ==========
   app.post('/checkout', {
     preHandler: [checkoutRateLimit],
@@ -602,6 +637,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
         amount: baseValue,
         product: link.product,
         feePayer,
+        paymentProvider: (link.user as any)?.payment_provider || 'efibank',
       },
       rates: {
         pix: rates.pix_rate,
