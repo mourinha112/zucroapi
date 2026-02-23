@@ -484,6 +484,43 @@ export async function paymentsRoutes(app: FastifyInstance) {
       card_rate: customRates.card_rate ? Number(customRates.card_rate) : undefined,
     } : null);
 
+    // Buscar orderbumps do produto (se existir produto vinculado)
+    let orderBumps = [];
+    let subscriptionPlan = null;
+    if (link.product_id) {
+      orderBumps = await prisma.orderBump.findMany({
+        where: {
+          product_id: link.product_id,
+          show_in_checkout: true,
+          active: true,
+        },
+        include: {
+          bump_product: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              price: true,
+              image_url: true,
+            },
+          },
+        },
+        orderBy: { position: 'asc' },
+      });
+
+      // Buscar plano de assinatura se o produto for uma assinatura
+      const product = link.product as any;
+      if (product?.is_subscription) {
+        subscriptionPlan = await prisma.subscriptionPlan.findFirst({
+          where: { 
+            user_id: link.user_id,
+            active: true,
+          },
+          orderBy: { created_at: 'asc' },
+        });
+      }
+    }
+
     const baseValue = Number(link.amount);
     const feePayer = (link.product as any)?.fee_payer || 'seller';
 
@@ -520,6 +557,30 @@ export async function paymentsRoutes(app: FastifyInstance) {
         fixed: rates.fixed_fee,
         installment: rates.installment_fee,
       },
+      // OrderBumps disponíveis para este checkout
+      orderBumps: orderBumps.map(ob => ({
+        id: ob.id,
+        name: ob.name,
+        description: ob.description,
+        price: Number(ob.price),
+        originalPrice: ob.original_price ? Number(ob.original_price) : null,
+        discountType: ob.discount_type,
+        discountValue: Number(ob.discount_value),
+        showImage: ob.show_image,
+        position: ob.position,
+        product: ob.bump_product,
+      })),
+      // Info de assinatura (se aplicável)
+      subscription: subscriptionPlan ? {
+        id: subscriptionPlan.id,
+        name: subscriptionPlan.name,
+        description: subscriptionPlan.description,
+        interval: subscriptionPlan.interval,
+        intervalCount: subscriptionPlan.interval_count,
+        price: Number(subscriptionPlan.price),
+        trialDays: subscriptionPlan.trial_days,
+        maxInstallments: subscriptionPlan.max_installments,
+      } : null,
       // Valores calculados baseados em quem paga os juros
       paymentOptions: {
         pix: {

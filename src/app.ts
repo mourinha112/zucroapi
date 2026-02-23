@@ -24,6 +24,8 @@ import { verificationRoutes } from './modules/verification/verification.routes';
 import { pushRoutes } from './modules/push/push.routes';
 import { uploadRoutes } from './modules/upload/upload.routes';
 import { checkoutRoutes } from './modules/checkout/checkout.routes';
+import { orderBumpRoutes } from './modules/orderbump/orderbump.routes';
+import { subscriptionRoutes } from './modules/subscriptions/subscriptions.routes';
 
 const app = Fastify({
   logger: {
@@ -264,6 +266,8 @@ async function bootstrap() {
   app.register(pushRoutes, { prefix: '/api/push' });
   app.register(uploadRoutes, { prefix: '/api/upload' });
   app.register(checkoutRoutes, { prefix: '/api/checkout' });
+  app.register(orderBumpRoutes, { prefix: '/api/orderbumps' });
+  app.register(subscriptionRoutes, { prefix: '/api/subscriptions' });
 
   // Global error handler
   app.setErrorHandler((error, request, reply) => {

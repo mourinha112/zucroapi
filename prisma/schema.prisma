@@ -58,7 +58,11 @@ model User {
   chargebacks        Chargeback[]
   risky_seller_logs  RiskySellerLog[]
   user_verification  UserVerification?
-  custom_rates       UserCustomRate?
+  custom_rates       UserCustomRate[]
+  order_bumps        OrderBump[]
+  subscription_plans SubscriptionPlan[]
+  subscriptions      Subscription[] // Assinaturas criadas pelo usuário (vendedor)
+  customer_subscriptions Subscription[] @relation("CustomerSubscriptions") // Assinaturas onde o usuário é cliente
 
   @@map("users")
 }
@@ -90,12 +94,16 @@ model Product {
   marketplace_enabled   Boolean   @default(false)
   commission_percentage Decimal   @default(30) @db.Decimal(5, 2)
   fee_payer             String    @default("seller") @db.VarChar(10)
+  is_subscription       Boolean   @default(false) // Produto é uma assinatura?
+  subscription_plan_id  String?   @db.Uuid // Plano de assinatura associado
   created_at            DateTime  @default(now()) @db.Timestamptz
   updated_at            DateTime  @default(now()) @db.Timestamptz
 
   user                   User                    @relation(fields: [user_id], references: [id], onDelete: Cascade)
   payment_links          PaymentLink[]
   checkout_customization CheckoutCustomization?
+  order_bumps           OrderBump[]             @relation("OrderBumpMainProduct")
+  offer_order_bumps     OrderBump[]             @relation("OrderBumpOfferProduct")
 
   @@map("products")
 }
@@ -163,12 +171,15 @@ model Payment {
   pix_copy_paste  String?
   metadata        Json      @default("{}")
   payment_link_id String?   @db.Uuid
+  subscription_id String?   @db.Uuid // Vinculo com assinatura
   created_at      DateTime  @default(now()) @db.Timestamptz
   updated_at      DateTime  @default(now()) @db.Timestamptz
 
   user         User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
   payment_link PaymentLink? @relation(fields: [payment_link_id], references: [id])
   chargebacks  Chargeback[]
+  subscription_payments SubscriptionPayment[]
+  subscription  Subscription?  @relation("PaymentSubscription", fields: [subscription_id], references: [id])
 
   @@map("payments")
 }
@@ -446,4 +457,112 @@ model RiskySellerLog {
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@map("risky_seller_logs")
+}
+
+// ============================================
+// ORDERBUMP - Ofertas adicionais no checkout
+// ============================================
+
+model OrderBump {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id           String    @db.Uuid
+  product_id        String    @db.Uuid // Produto principal (checkout)
+  bump_product_id   String    @db.Uuid // Produto que será oferecido como orderbump
+  name              String    @db.VarChar(200) // Nome da oferta (ex: "Levar por R$19,90")
+  description       String?   // Descrição breve da oferta
+  price             Decimal   @db.Decimal(10, 2) // Preço especial do orderbump
+  original_price    Decimal?  @db.Decimal(10, 2) // Preço original (para mostrar desconto)
+  discount_type     String    @default("percentage") @db.VarChar(20) // percentage, fixed
+  discount_value    Decimal   @default(0) @db.Decimal(10, 2)
+  show_in_checkout  Boolean   @default(true)
+  show_image        Boolean   @default(true)
+  position         Int       @default(0) // Posição de exibição (0 = antes do produto, 1+ = depois)
+  min_quantity     Int       @default(1) // Quantidade mínima para ativar
+  active           Boolean   @default(true)
+  created_at        DateTime  @default(now()) @db.Timestamptz
+  updated_at        DateTime  @default(now()) @db.Timestamptz
+
+  user           User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  product        Product   @relation("OrderBumpMainProduct", fields: [product_id], references: [id], onDelete: Cascade)
+  bump_product   Product   @relation("OrderBumpOfferProduct", fields: [bump_product_id], references: [id], onDelete: Cascade)
+
+  @@map("order_bumps")
+}
+
+// ============================================
+// SUBSCRIPTION PLANS - Planos de assinatura
+// ============================================
+
+model SubscriptionPlan {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id           String    @db.Uuid
+  name              String    @db.VarChar(200)
+  description       String?
+  interval          String    @default("month") @db.VarChar(20) // week, month, year
+  interval_count    Int       @default(1) // A cada X intervalos (ex: a cada 2 meses)
+  price             Decimal   @db.Decimal(10, 2)
+  trial_days        Int       @default(0) // Dias de teste gratuito
+  max_installments  Int       @default(1) // Parcelamento da primeira cobrança
+  cancel_at_end     Boolean   @default(true) // Cancela ao final do período se não houver pagamento
+  active            Boolean   @default(true)
+  created_at        DateTime  @default(now()) @db.Timestamptz
+  updated_at        DateTime  @default(now()) @db.Timestamptz
+
+  user         User           @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  subscriptions Subscription[]
+
+  @@map("subscription_plans")
+}
+
+// ============================================
+// SUBSCRIPTIONS - Assinaturas ativas
+// ============================================
+
+model Subscription {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id               String    @db.Uuid // Vendedor (owner da assinatura)
+  customer_id           String?   @db.Uuid // Cliente (se tiver cadastro)
+  customer_email        String    @db.VarChar(200)
+  customer_name         String?   @db.VarChar(200)
+  customer_document     String?   @db.VarChar(20)
+  subscription_plan_id  String    @db.Uuid
+  external_subscription_id String? @db.VarChar(100) // ID da assinatura no gateway (EfiBank/Asaas)
+  status                String    @default("active") @db.VarChar(20) // active, paused, cancelled, past_due
+  current_period_start  DateTime  @db.Timestamptz
+  current_period_end   DateTime  @db.Timestamptz
+  next_billing_date    DateTime  @db.Timestamptz
+  cancel_at_period_end  Boolean   @default(false)
+  cancelled_at         DateTime? @db.Timestamptz
+  created_at           DateTime  @default(now()) @db.Timestamptz
+  updated_at           DateTime  @default(now()) @db.Timestamptz
+
+  user             User              @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  customer         User?             @relation("CustomerSubscriptions", fields: [customer_id], references: [id])
+  plan             SubscriptionPlan  @relation(fields: [subscription_plan_id], references: [id])
+  subscription_subscriptions SubscriptionPayment[]
+  payments         Payment[]         @relation("PaymentSubscription")
+
+  @@map("subscriptions")
+}
+
+// ============================================
+// SUBSCRIPTION PAYMENTS - Cobranças das assinaturas
+// ============================================
+
+model SubscriptionPayment {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  subscription_id       String    @db.Uuid
+  payment_id            String?   @db.Uuid // Pagamento criado (se houver)
+  external_payment_id   String?   @db.VarChar(100) // ID da cobrança no gateway
+  amount                Decimal   @db.Decimal(10, 2)
+  status                String    @default("pending") @db.VarChar(20) // pending, paid, failed, cancelled
+  billing_date          DateTime  @db.Timestamptz
+  paid_at              DateTime? @db.Timestamptz
+  failure_reason       String?   @db.VarChar(500)
+  created_at           DateTime  @default(now()) @db.Timestamptz
+
+  subscription Subscription @relation(fields: [subscription_id], references: [id], onDelete: Cascade)
+  payment     Payment?     @relation(fields: [payment_id], references: [id])
+
+  @@map("subscription_payments")
 }
