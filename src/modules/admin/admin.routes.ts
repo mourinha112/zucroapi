@@ -1708,6 +1708,19 @@ export async function adminRoutes(app: FastifyInstance) {
           status: s.status,
           created_at: s.created_at,
           user: s.user,
+          // Dados do cliente do metadata
+          customer_name: s.metadata?.customer_name,
+          customer_email: s.metadata?.customer_email,
+          customer_document: s.metadata?.customer_document,
+          customer_phone: s.metadata?.customer_phone,
+          ip_address: s.metadata?.customer_ip,
+          user_agent: s.metadata?.user_agent,
+          // IDs do gateway
+          asaas_payment_id: s.asaas_payment_id,
+          efi_charge_id: s.efi_charge_id,
+          efi_txid: s.efi_txid,
+          // Descrição
+          description: s.description,
         })),
       });
     } catch (error: any) {

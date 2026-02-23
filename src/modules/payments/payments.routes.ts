@@ -149,6 +149,9 @@ export async function paymentsRoutes(app: FastifyInstance) {
         totalValue?: number;
       };
 
+      // Capturar IP do cliente
+      const clientIp = request.headers['x-forwarded-for'] as string || request.ip || 'unknown';
+
       // Buscar link de pagamento
       const link = await prisma.paymentLink.findFirst({
         where: { id: body.linkId, active: true },
@@ -287,6 +290,11 @@ export async function paymentsRoutes(app: FastifyInstance) {
               fee_payer: feePayer,
               seller_rates: rates,
               payment_provider: paymentProvider,
+              customer_ip: clientIp,
+              customer_name: body.customerName,
+              customer_email: body.customerEmail,
+              customer_document: body.customerCpfCnpj,
+              customer_phone: body.customerPhone,
             })),
           },
         });
@@ -420,6 +428,11 @@ export async function paymentsRoutes(app: FastifyInstance) {
               fee_payer: feePayer,
               seller_rates: rates,
               payment_provider: paymentProvider,
+              customer_ip: clientIp,
+              customer_name: body.customerName,
+              customer_email: body.customerEmail,
+              customer_document: body.customerCpfCnpj,
+              customer_phone: body.customerPhone,
             })),
           },
         });
