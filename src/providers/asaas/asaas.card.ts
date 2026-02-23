@@ -71,7 +71,7 @@ export const createAsaasCardPayment = async (data: AsaasCardPaymentData): Promis
 
     console.log('[ASAAS CARD] Criando pagamento:', JSON.stringify(chargeData));
 
-    const result = await makeAsaasRequest('POST', '/v3/payments', chargeData);
+    const result = await makeAsaasRequest('POST', '/payments', chargeData);
 
     if (!result.success) {
       console.error('[ASAAS CARD] Erro na resposta:', result.data);
@@ -123,7 +123,7 @@ export const createAsaasCardToken = async (cardData: {
 
     console.log('[ASAAS CARD TOKEN] Criando token:', tokenData);
 
-    const result = await makeAsaasRequest('POST', '/v3/cards/tokenize', tokenData);
+    const result = await makeAsaasRequest('POST', '/cards/tokenize', tokenData);
 
     if (!result.success) {
       console.error('[ASAAS CARD TOKEN] Erro:', result.data);
@@ -201,7 +201,7 @@ export const payWithAsaasCardToken = async (
 
     console.log('[ASAAS CARD TOKEN] Pagando com token:', paymentData);
 
-    const result = await makeAsaasRequest('POST', '/v3/payments', paymentData);
+    const result = await makeAsaasRequest('POST', '/payments', paymentData);
 
     if (!result.success) {
       console.error('[ASAAS CARD TOKEN] Erro:', result.data);
