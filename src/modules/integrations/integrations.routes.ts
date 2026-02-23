@@ -895,11 +895,30 @@ export async function integrationsRoutes(app: FastifyInstance) {
     const user = request.apiUser!;
     const body = request.body as {
       amount: number;
+      withdraw_type?: 'pix' | 'bank';
       pix_key?: string;
+      pix_key_type?: string;
+      bank_code?: string;
+      bank_name?: string;
+      agency?: string;
+      account_number?: string;
+      account_digit?: string;
+      account_type?: string;
+      holder_name?: string;
+      holder_document?: string;
     };
 
     if (!body.amount || body.amount <= 0) {
       return reply.status(400).send({ error: 'Valor inválido' });
+    }
+
+    // Validar dados conforme tipo de saque
+    if (body.withdraw_type === 'bank') {
+      if (!body.bank_code || !body.agency || !body.account_number || !body.holder_name || !body.holder_document) {
+        return reply.status(400).send({ error: 'Dados bancários incompletos' });
+      }
+    } else if (!body.pix_key) {
+      return reply.status(400).send({ error: 'Chave PIX obrigatória para saque via PIX' });
     }
 
     // Verificar saldo
@@ -917,7 +936,17 @@ export async function integrationsRoutes(app: FastifyInstance) {
       data: {
         user_id: user.id,
         amount: body.amount,
+        withdrawal_type: body.withdraw_type || 'pix',
         pix_key: body.pix_key || '',
+        pix_key_type: body.pix_key_type || 'cpf',
+        bank_code: body.bank_code || null,
+        bank_name: body.bank_name || null,
+        agency: body.agency || null,
+        account_number: body.account_number || null,
+        account_digit: body.account_digit || null,
+        account_type: body.account_type || null,
+        holder_name: body.holder_name || null,
+        holder_document: body.holder_document?.replace(/\D/g, '') || null,
         status: 'pending',
       },
     });
@@ -935,6 +964,7 @@ export async function integrationsRoutes(app: FastifyInstance) {
       id: withdrawal.id,
       amount: Number(withdrawal.amount),
       status: withdrawal.status,
+      withdrawal_type: withdrawal.withdrawal_type,
       created_at: withdrawal.created_at,
     });
   });

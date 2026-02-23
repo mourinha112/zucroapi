@@ -95,8 +95,16 @@ export const getAsaasPayment = async (paymentId: string) => {
 // Criar transferência PIX (saque) no Asaas
 export const createAsaasPixTransfer = async (data: {
   value: number;
-  pixKey: string;
-  pixKeyType: string;
+  pixKey?: string;
+  pixKeyType?: string;
+  bankCode?: string;
+  bankName?: string;
+  agency?: string;
+  accountNumber?: string;
+  accountDigit?: string;
+  accountType?: string;
+  holderName?: string;
+  holderDocument?: string;
   description: string;
 }) => {
   console.log('[ASAAS] Criando transferência PIX:', data.value);
@@ -110,16 +118,52 @@ export const createAsaasPixTransfer = async (data: {
     random: 'EVP',
   };
 
+  const accountTypeMap: Record<string, string> = {
+    conta_corrente: 'CONTA_CORRENTE',
+    conta_poupanca: 'CONTA_POUPANÇA',
+    conta_facil: 'CONTA_FACIL',
+   Checking: 'CONTA_CORRENTE',
+    Savings: 'CONTA_POUPANÇA',
+  };
+
+  // Preparar dados da conta bancária
+  let bankAccount: any = {};
+  
+  if (data.bankCode && data.agency && data.accountNumber) {
+    // Transferência com dados bancários completos
+    bankAccount = {
+      bank: {
+        ispb: '', // O Asaas pode obter pelo código do banco
+        code: data.bankCode,
+      },
+      accountNumber: data.accountNumber,
+      accountDigit: data.accountDigit || '0',
+      accountType: accountTypeMap[data.accountType || 'conta_corrente'] || 'CONTA_CORRENTE',
+      holderName: data.holderName || 'Destinatário',
+      holderDocument: data.holderDocument || '',
+    };
+    console.log('[ASAAS] Transferência com dados bancários:', bankAccount);
+  } else if (data.pixKey) {
+    // Transferência via chave PIX
+    bankAccount = {
+      bank: {
+        ispb: '',
+      },
+      ownerName: data.holderName || 'Destinatário',
+      pixAddressKey: data.pixKey,
+      pixAddressKeyType: pixKeyTypeMap[data.pixKeyType || 'cpf'] || 'EVP',
+    };
+    console.log('[ASAAS] Transferência via chave PIX:', bankAccount);
+  } else {
+    return {
+      success: false,
+      error: 'Informe a chave PIX ou os dados bancários completos',
+    };
+  }
+
   const transferData = {
     value: data.value,
-    bankAccount: {
-      bank: {
-        ispb: '', // Deixar vazio para PIX
-      },
-      ownerName: 'Destinatário',
-      pixAddressKey: data.pixKey,
-      pixAddressKeyType: pixKeyTypeMap[data.pixKeyType] || 'EVP',
-    },
+    bankAccount,
     operationType: 'PIX',
     description: data.description,
   };
@@ -127,7 +171,7 @@ export const createAsaasPixTransfer = async (data: {
   console.log('[ASAAS] Dados da transferência:', JSON.stringify(transferData));
   const result = await makeAsaasRequest('POST', '/transfers', transferData);
 
-  if (!result.success) {
+  if (!result.success || (result.data?.errors?.length > 0)) {
     console.error('[ASAAS] Erro na transferência:', result.data);
     return {
       success: false,

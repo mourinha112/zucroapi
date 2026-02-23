@@ -372,12 +372,33 @@ export async function adminRoutes(app: FastifyInstance) {
         if (paymentProvider === 'asaas') {
           // Saque via Asaas
           const { createAsaasPixTransfer } = await import('../../providers/asaas/asaas.pix');
-          pixResult = await createAsaasPixTransfer({
-            value: Number(withdrawal.amount),
-            pixKey: withdrawal.pix_key!,
-            pixKeyType: withdrawal.pix_key_type || 'cpf',
-            description: `Saque ZucroPay - ${seller?.name || 'Usuario'}`,
-          });
+          
+          // Verificar tipo de saque
+          if (withdrawal.withdrawal_type === 'bank' && withdrawal.bank_code) {
+            // Saque com dados bancários
+            pixResult = await createAsaasPixTransfer({
+              value: Number(withdrawal.amount),
+              bankCode: withdrawal.bank_code,
+              bankName: withdrawal.bank_name || undefined,
+              agency: withdrawal.agency || undefined,
+              accountNumber: withdrawal.account_number || undefined,
+              accountDigit: withdrawal.account_digit || undefined,
+              accountType: withdrawal.account_type || undefined,
+              holderName: withdrawal.holder_name || undefined,
+              holderDocument: withdrawal.holder_document || undefined,
+              description: `Saque ZucroPay - ${seller?.name || 'Usuario'}`,
+            });
+          } else {
+            // Saque via chave PIX
+            pixResult = await createAsaasPixTransfer({
+              value: Number(withdrawal.amount),
+              pixKey: withdrawal.pix_key!,
+              pixKeyType: withdrawal.pix_key_type || 'cpf',
+              holderName: withdrawal.holder_name || undefined,
+              holderDocument: withdrawal.holder_document || undefined,
+              description: `Saque ZucroPay - ${seller?.name || 'Usuario'}`,
+            });
+          }
           // Normalizar resposta Asaas para o mesmo formato
           if (pixResult.success) {
             pixResult.endToEndId = pixResult.transferId || '';

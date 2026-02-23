@@ -73,22 +73,23 @@ export const createAsaasCardPayment = async (data: AsaasCardPaymentData): Promis
 
     const result = await makeAsaasRequest('POST', '/v3/payments', chargeData);
 
-    if (result.errors && result.errors.length > 0) {
-      console.error('[ASAAS CARD] Erro na resposta:', result.errors);
+    if (!result.success) {
+      console.error('[ASAAS CARD] Erro na resposta:', result.data);
       return {
         success: false,
-        error: result.errors[0]?.description || 'Erro ao processar cartão',
+        error: result.data?.errors?.[0]?.description || 'Erro ao processar cartão',
         debug: result,
       };
     }
 
-    console.log('[ASAAS CARD] Pagamento criado:', result);
+    const paymentData = result.data;
+    console.log('[ASAAS CARD] Pagamento criado:', paymentData);
 
     return {
       success: true,
-      paymentId: result.id,
-      status: result.status,
-      debug: result,
+      paymentId: paymentData.id,
+      status: paymentData.status,
+      debug: paymentData,
     };
   } catch (error: any) {
     console.error('[ASAAS CARD] Erro:', error);
@@ -124,19 +125,20 @@ export const createAsaasCardToken = async (cardData: {
 
     const result = await makeAsaasRequest('POST', '/v3/cards/tokenize', tokenData);
 
-    if (result.errors && result.errors.length > 0) {
-      console.error('[ASAAS CARD TOKEN] Erro:', result.errors);
+    if (!result.success) {
+      console.error('[ASAAS CARD TOKEN] Erro:', result.data);
       return {
         success: false,
-        error: result.errors[0]?.description || 'Erro ao tokenizar cartão',
+        error: result.data?.errors?.[0]?.description || 'Erro ao tokenizar cartão',
       };
     }
 
-    console.log('[ASAAS CARD TOKEN] Token criado:', result);
+    const tokenResult = result.data;
+    console.log('[ASAAS CARD TOKEN] Token criado:', tokenResult);
 
     return {
       success: true,
-      token: result.creditCardToken,
+      token: tokenResult.creditCardToken,
     };
   } catch (error: any) {
     console.error('[ASAAS CARD TOKEN] Erro:', error);
@@ -170,7 +172,7 @@ export const payWithAsaasCardToken = async (
   description: string
 ): Promise<AsaasCardPaymentResult> => {
   try {
-    const paymentData = {
+    const paymentData: any = {
       customer: customerId,
       billingType: 'CREDIT_CARD',
       value: value,
@@ -201,22 +203,23 @@ export const payWithAsaasCardToken = async (
 
     const result = await makeAsaasRequest('POST', '/v3/payments', paymentData);
 
-    if (result.errors && result.errors.length > 0) {
-      console.error('[ASAAS CARD TOKEN] Erro:', result.errors);
+    if (!result.success) {
+      console.error('[ASAAS CARD TOKEN] Erro:', result.data);
       return {
         success: false,
-        error: result.errors[0]?.description || 'Erro ao processar pagamento',
+        error: result.data?.errors?.[0]?.description || 'Erro ao processar pagamento',
         debug: result,
       };
     }
 
-    console.log('[ASAAS CARD TOKEN] Pagamento criado:', result);
+    const paymentResult = result.data;
+    console.log('[ASAAS CARD TOKEN] Pagamento criado:', paymentResult);
 
     return {
       success: true,
-      paymentId: result.id,
-      status: result.status,
-      debug: result,
+      paymentId: paymentResult.id,
+      status: paymentResult.status,
+      debug: paymentResult,
     };
   } catch (error: any) {
     console.error('[ASAAS CARD TOKEN] Erro:', error);

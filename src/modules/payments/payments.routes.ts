@@ -3,14 +3,15 @@ import { z } from 'zod';
 import { prisma } from '../../config/database';
 import { createPixCharge } from '../../providers/efibank/efi.pix';
 import { createCardCharge, payWithCardToken } from '../../providers/efibank/efi.card';
-import { createAsaasPixCharge, createAsaasCustomer, payWithAsaasCardToken, createAsaasCardToken } from '../../providers/asaas/asaas.card';
+import { createAsaasPixCharge, createAsaasCustomer } from '../../providers/asaas/asaas.pix';
+import { payWithAsaasCardToken } from '../../providers/asaas/asaas.card';
 import {
   getEffectiveRates,
   calculatePixFeeSellerPays,
   calculateCardFeeSellerPays,
   calculateCardFeeBuyerPays,
-  calculateReleaseDate,
   calculateTotalForBuyer,
+  calculateReleaseDate,
 } from '../../providers/efibank/fee.calculator';
 import { 
   authenticate, 
@@ -130,7 +131,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
     return reply.send({ success: true, transactions });
   });
 
-  // ========== CHECKOUT PÚBLICO (não requer auth, com rate limit) ==========
+  // ========== CHECKOUT PÚBLICO (sem autenticação, com rate limit) ==========
   app.post('/checkout', {
     preHandler: [checkoutRateLimit],
   }, async (request, reply) => {
@@ -155,10 +156,14 @@ export async function paymentsRoutes(app: FastifyInstance) {
       });
 
       if (!link) {
-        return reply.status(404).send({ success: false, message: 'Link de pagamento não encontrado', error: 'Link de pagamento não encontrado' });
+        return reply.status(404).send({ 
+          success: false, 
+          message: 'Link de pagamento não encontrado', 
+          error: 'Link de pagamento não encontrado' 
+        });
       }
 
-      // Buscar taxas personalizadas do vendedor
+      // Taxas personalizadas do vendedor
       const customRates = await prisma.userCustomRate.findUnique({
         where: { user_id: link.user_id },
       });
@@ -169,15 +174,11 @@ export async function paymentsRoutes(app: FastifyInstance) {
         boleto_rate: customRates.boleto_rate ? Number(customRates.boleto_rate) : undefined,
       } : null);
 
-      // Determinar quem paga os juros (somente juros de parcelamento, não taxa da plataforma)
       const feePayer = (link.product as any)?.fee_payer || 'seller';
       const baseValue = Number(link.amount);
       const description = link.product?.name || link.name || 'Pagamento ZucroPay';
       const installments = body.cardInstallments || 1;
 
-      // Calcular valor que o cliente paga
-      // PIX: sempre valor base (não tem juros)
-      // Cartão: valor base + juros de parcelamento (se comprador paga)
       const grossValue = calculateTotalForBuyer(
         baseValue,
         body.billingType as 'PIX' | 'CREDIT_CARD' | 'BOLETO',
@@ -188,9 +189,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
 
       let payment: any;
 
-      // ========== PIX ==========
       if (body.billingType === 'PIX') {
-        // Verificar qual provedor usar baseado no payment_provider do vendedor
         const paymentProvider = (link.user as any).payment_provider || 'efibank';
         console.log(`[CHECKOUT PIX] Provedor configurado: ${paymentProvider}, vendedor: ${link.user.name} (${link.user_id})`);
 
@@ -199,10 +198,6 @@ export async function paymentsRoutes(app: FastifyInstance) {
         let paymentId = '';
 
         if (paymentProvider === 'asaas') {
-          // ========== ASAAS PIX ==========
-          console.log(`[CHECKOUT PIX] Usando ASAAS para vendedor ${link.user.name}`);
-
-          // Asaas exige CPF/CNPJ do comprador
           if (!body.customerCpfCnpj) {
             return reply.send({ 
               success: false, 
@@ -211,7 +206,6 @@ export async function paymentsRoutes(app: FastifyInstance) {
             });
           }
 
-          // Criar/buscar cliente no Asaas
           const customerResult = await createAsaasCustomer({
             name: body.customerName,
             cpfCnpj: body.customerCpfCnpj,
@@ -225,9 +219,6 @@ export async function paymentsRoutes(app: FastifyInstance) {
             return reply.send({ success: false, message: errorMsg, error: errorMsg });
           }
 
-          console.log(`[CHECKOUT PIX] Asaas - cliente: ${customerResult.customerId}`);
-
-          // Criar cobrança PIX no Asaas
           const asaasResult = await createAsaasPixCharge({
             value: baseValue,
             description,
@@ -243,12 +234,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
           pixCode = asaasResult.pixCode || '';
           pixQrCode = asaasResult.pixQrCode || '';
           paymentId = asaasResult.paymentId || asaasResult.externalReference || '';
-          console.log(`[CHECKOUT PIX] Asaas OK - paymentId: ${paymentId}, temQR: ${!!pixQrCode}, temCopia: ${!!pixCode}`);
-
         } else {
-          // ========== EFIBANK PIX ==========
-          console.log(`[CHECKOUT PIX] Usando EFIBANK para vendedor ${link.user.name}`);
-
           const pixResult = await createPixCharge({
             value: baseValue,
             description,
@@ -265,18 +251,18 @@ export async function paymentsRoutes(app: FastifyInstance) {
           pixCode = pixResult.pixCode || '';
           pixQrCode = pixResult.pixQrCode || '';
           paymentId = pixResult.txid || '';
-          console.log(`[CHECKOUT PIX] EfiBank OK - txid: ${paymentId}`);
         }
 
-        // Verificação final
         if (!pixCode) {
-          return reply.send({ success: false, message: 'Não foi possível gerar o código PIX. Tente novamente.', error: 'PIX vazio' });
+          return reply.send({ 
+            success: false, 
+            message: 'Não foi possível gerar o código PIX. Tente novamente.', 
+            error: 'PIX vazio' 
+          });
         }
 
-        // Calcular taxas (PIX não tem parcelamento, taxa sempre do vendedor)
         const feeCalc = calculatePixFeeSellerPays(baseValue, rates);
 
-        // Salvar pagamento
         const savedPayment = await prisma.payment.create({
           data: {
             user_id: link.user_id,
@@ -287,7 +273,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
             description,
             due_date: new Date(),
             efi_txid: paymentProvider === 'efibank' ? paymentId : null,
-            asaas_payment_id: paymentProvider === 'asaas' ? paymentId : paymentId, // Compatibilidade
+            asaas_payment_id: paymentProvider === 'asaas' ? paymentId : null,
             pix_qrcode: pixQrCode,
             pix_copy_paste: pixCode,
             payment_link_id: link.id,
@@ -302,7 +288,6 @@ export async function paymentsRoutes(app: FastifyInstance) {
           },
         });
 
-        // Atualizar contador do link
         await prisma.paymentLink.update({
           where: { id: link.id },
           data: { payments_count: { increment: 1 } },
@@ -315,24 +300,20 @@ export async function paymentsRoutes(app: FastifyInstance) {
           pixCode,
           pixQrCode,
         };
-      }
-
-      // ========== CARTÃO ==========
+      } 
       else if (body.billingType === 'CREDIT_CARD') {
-        // Verificar qual provedor usar baseado no payment_provider do vendedor
         const paymentProvider = (link.user as any).payment_provider || 'efibank';
         console.log(`[CHECKOUT CARD] Provedor configurado: ${paymentProvider}, vendedor: ${link.user.name}`);
 
         let cardPaymentResult: any;
-        let cardPaymentId: string;
-        let cardStatus: string;
-        let cardDebug: any;
+        let cardPaymentId: string = '';
+        let cardStatus: string = 'PENDING';
 
         if (paymentProvider === 'asaas') {
-          // ========== ASAAS CARTÃO ==========
-          console.log(`[CHECKOUT CARD] Usando ASAAS para vendedor ${link.user.name}`);
-          
-          // Criar/buscar cliente no Asaas
+          if (!body.cardPaymentToken) {
+            return reply.send({ success: false, message: 'Token do cartão é obrigatório', error: 'Token obrigatório' });
+          }
+
           const customerResult = await createAsaasCustomer({
             name: body.customerName,
             cpfCnpj: body.customerCpfCnpj || '',
@@ -341,85 +322,78 @@ export async function paymentsRoutes(app: FastifyInstance) {
           });
 
           if (!customerResult.success || !customerResult.customerId) {
-            const errorMsg = customerResult.error || 'Erro ao registrar cliente no gateway';
-            return reply.send({ success: false, message: errorMsg, error: errorMsg });
+            return reply.send({ 
+              success: false, 
+              message: customerResult.error || 'Erro ao registrar cliente no Asaas' 
+            });
           }
 
-          // Pagar com token do cartão
-          if (body.cardPaymentToken) {
-            const payResult = await payWithAsaasCardToken(
-              customerResult.customerId,
-              grossValue,
-              body.cardPaymentToken,
-              installments,
-              {
-                name: body.customerName,
-                document: body.customerCpfCnpj || '',
-                email: body.customerEmail,
-                phone: body.customerPhone,
-              },
-              description
-            );
+          const payResult = await payWithAsaasCardToken(
+            customerResult.customerId,
+            grossValue,
+            body.cardPaymentToken,
+            installments,
+            {
+              name: body.customerName,
+              document: body.customerCpfCnpj || '',
+              email: body.customerEmail,
+              phone: body.customerPhone || '',
+            },
+            description
+          );
 
-            cardPaymentResult = payResult;
-            cardPaymentId = payResult.paymentId || '';
-            cardStatus = payResult.status || 'PENDING';
-            cardDebug = payResult.debug;
-          } else {
-            return reply.send({ success: false, message: 'Token do cartão é obrigatório', error: 'Token obrigatório' });
-          }
+          cardPaymentResult = payResult;
+          cardPaymentId = payResult.paymentId || '';
+          cardStatus = payResult.status || 'PENDING';
         } else {
-          // ========== EFIBANK CARTÃO ==========
           const chargeResult = await createCardCharge({ value: grossValue, description });
 
           if (!chargeResult.success) {
-            const errorMsg = chargeResult.error || 'Erro ao criar cobrança de cartão';
-            return reply.send({ success: false, message: errorMsg, error: errorMsg });
+            return reply.send({ 
+              success: false, 
+              message: chargeResult.error || 'Erro ao criar cobrança de cartão' 
+            });
           }
 
-          if (body.cardPaymentToken) {
-            const payResult = await payWithCardToken(chargeResult.chargeId!, {
-              value: grossValue,
-              description,
-              installments,
-              paymentToken: body.cardPaymentToken,
-              customer: {
-                name: body.customerName,
-                email: body.customerEmail,
-                cpf: body.customerCpfCnpj || '',
-                phone: body.customerPhone,
-              },
-              billingAddress: body.billingAddress,
-            });
-
-            cardPaymentResult = payResult;
-            cardPaymentId = chargeResult.chargeId!.toString();
-            cardStatus = payResult.status === 'RECEIVED' ? 'RECEIVED' : 'PENDING';
-            cardDebug = payResult.debug;
-          } else {
+          if (!body.cardPaymentToken) {
             return reply.send({ success: false, message: 'Token do cartão é obrigatório', error: 'Token obrigatório' });
           }
+
+          const payResult = await payWithCardToken(chargeResult.chargeId!, {
+            value: grossValue,
+            description,
+            installments,
+            paymentToken: body.cardPaymentToken,
+            customer: {
+              name: body.customerName,
+              email: body.customerEmail,
+              cpf: body.customerCpfCnpj || '',
+              phone: body.customerPhone,
+            },
+            billingAddress: body.billingAddress,
+          });
+
+          cardPaymentResult = payResult;
+          cardPaymentId = chargeResult.chargeId!.toString();
+          cardStatus = payResult.status === 'RECEIVED' ? 'RECEIVED' : 'PENDING';
         }
 
-        if (!cardPaymentResult.success) {
-          const errorMsg = cardPaymentResult.error || 'Erro ao processar pagamento com cartão';
+        if (!cardPaymentResult?.success) {
           return reply.send({
             success: false,
-            message: errorMsg,
-            error: errorMsg,
-            cardRefused: cardPaymentResult.cardRefused,
-            canRetry: cardPaymentResult.canRetry,
+            message: cardPaymentResult?.error || 'Erro ao processar pagamento com cartão',
+            error: cardPaymentResult?.error,
+            cardRefused: cardPaymentResult?.cardRefused,
+            canRetry: cardPaymentResult?.canRetry,
           });
         }
 
-        // Calcular taxas
         const feeCalc = feePayer === 'buyer'
           ? calculateCardFeeBuyerPays(baseValue, installments, rates)
           : calculateCardFeeSellerPays(baseValue, installments, rates);
 
         const status = cardStatus === 'RECEIVED' || cardStatus === 'CONFIRMED' ? 'RECEIVED' : 'PENDING';
 
-        // Salvar pagamento
         const savedPayment = await prisma.payment.create({
           data: {
             user_id: link.user_id,
@@ -447,73 +421,77 @@ export async function paymentsRoutes(app: FastifyInstance) {
           },
         });
 
-          // Se aprovado, atualizar saldo
-          if (status === 'RECEIVED') {
-            // Atualizar saldo do usuário
-            await prisma.user.update({
-              where: { id: link.user_id },
-              data: {
-                balance: { increment: feeCalc.netValue },
-                reserved_balance: { increment: feeCalc.reserveAmount },
-              },
-            });
-
-            // Criar reserva
-            await prisma.balanceReserve.create({
-              data: {
-                user_id: link.user_id,
-                payment_id: savedPayment.id,
-                original_amount: baseValue,
-                reserve_amount: feeCalc.reserveAmount,
-                status: 'held',
-                release_date: calculateReleaseDate(rates.reserve_days),
-                description: `Reserva 5% - ${description}`,
-              },
-            });
-
-            // Criar transação
-            await prisma.transaction.create({
-              data: {
-                user_id: link.user_id,
-                type: 'payment_received',
-                amount: grossValue,
-                status: 'completed',
-                description: `Venda com cartão ${installments}x - ${description}`,
-                efi_charge_id: paymentProvider === 'efibank' ? cardPaymentId : undefined,
-                asaas_payment_id: paymentProvider === 'asaas' ? cardPaymentId : undefined,
-                metadata: feeCalc as any,
-              },
-            });
-          }
-
-          // Atualizar link
-          await prisma.paymentLink.update({
-            where: { id: link.id },
+        if (status === 'RECEIVED') {
+          await prisma.user.update({
+            where: { id: link.user_id },
             data: {
-              payments_count: { increment: 1 },
-              total_received: status === 'RECEIVED' ? { increment: grossValue } : undefined,
+              balance: { increment: feeCalc.netValue },
+              reserved_balance: { increment: feeCalc.reserveAmount },
             },
           });
 
-          payment = {
-            id: savedPayment.id,
-            chargeId: cardPaymentId,
-            status,
-            installments,
-          };
-        } else {
-          return reply.send({ success: false, message: 'Token do cartão é obrigatório', error: 'Token do cartão é obrigatório' });
+          await prisma.balanceReserve.create({
+            data: {
+              user_id: link.user_id,
+              payment_id: savedPayment.id,
+              original_amount: baseValue,
+              reserve_amount: feeCalc.reserveAmount,
+              status: 'held',
+              release_date: calculateReleaseDate(rates.reserve_days),
+              description: `Reserva 5% - ${description}`,
+            },
+          });
+
+          await prisma.transaction.create({
+            data: {
+              user_id: link.user_id,
+              type: 'payment_received',
+              amount: grossValue,
+              status: 'completed',
+              description: `Venda com cartão ${installments}x - ${description}`,
+              efi_charge_id: paymentProvider === 'efibank' ? cardPaymentId : undefined,
+              asaas_payment_id: paymentProvider === 'asaas' ? cardPaymentId : undefined,
+              metadata: feeCalc as any,
+            },
+          });
         }
+
+        await prisma.paymentLink.update({
+          where: { id: link.id },
+          data: {
+            payments_count: { increment: 1 },
+            total_received: status === 'RECEIVED' ? { increment: grossValue } : undefined,
+          },
+        });
+
+        payment = {
+          id: savedPayment.id,
+          chargeId: cardPaymentId,
+          status,
+          installments,
+        };
+      } 
+      else {
+        return reply.status(400).send({
+          success: false,
+          message: 'Método de pagamento inválido',
+          error: 'billingType deve ser PIX ou CREDIT_CARD',
+        });
       }
 
+      // Sucesso
       return reply.send({ success: true, payment });
     } catch (error: any) {
       console.error('[CHECKOUT] Erro:', error);
-      return reply.status(500).send({ success: false, message: error.message || 'Erro interno ao processar pagamento', error: error.message });
+      return reply.status(500).send({
+        success: false,
+        message: error.message || 'Erro interno ao processar pagamento',
+        error: error.message,
+      });
     }
   });
 
-  // Obter dados do link para checkout (público, com rate limit)
+  // Obter dados do link para checkout (público)
   app.get('/checkout/:linkId', {
     preHandler: [checkoutRateLimit],
   }, async (request, reply) => {
@@ -528,13 +506,11 @@ export async function paymentsRoutes(app: FastifyInstance) {
       return reply.status(404).send({ success: false, error: 'Link não encontrado' });
     }
 
-    // Incrementar cliques
     await prisma.paymentLink.update({
       where: { id: linkId },
       data: { clicks: { increment: 1 } },
     });
 
-    // Buscar taxas do vendedor para calcular valor pro comprador
     const customRates = await prisma.userCustomRate.findUnique({
       where: { user_id: link.user_id },
     });
@@ -544,9 +520,9 @@ export async function paymentsRoutes(app: FastifyInstance) {
       card_rate: customRates.card_rate ? Number(customRates.card_rate) : undefined,
     } : null);
 
-    // Buscar orderbumps do produto (se existir produto vinculado)
     let orderBumps: any[] = [];
     let subscriptionPlan = null;
+
     if (link.product_id) {
       orderBumps = await prisma.orderBump.findMany({
         where: {
@@ -568,7 +544,6 @@ export async function paymentsRoutes(app: FastifyInstance) {
         orderBy: { position: 'asc' },
       });
 
-      // Buscar plano de assinatura se o produto for uma assinatura
       const product = link.product as any;
       if (product?.is_subscription) {
         subscriptionPlan = await prisma.subscriptionPlan.findFirst({
@@ -584,7 +559,6 @@ export async function paymentsRoutes(app: FastifyInstance) {
     const baseValue = Number(link.amount);
     const feePayer = (link.product as any)?.fee_payer || 'seller';
 
-    // Calcular valores para cada opção de pagamento
     const installmentOptions = [];
     for (let i = 1; i <= 12; i++) {
       const total = calculateTotalForBuyer(baseValue, 'CREDIT_CARD', i, feePayer, rates);
@@ -617,7 +591,6 @@ export async function paymentsRoutes(app: FastifyInstance) {
         fixed: rates.fixed_fee,
         installment: rates.installment_fee,
       },
-      // OrderBumps disponíveis para este checkout
       orderBumps: orderBumps.map(ob => ({
         id: ob.id,
         name: ob.name,
@@ -630,7 +603,6 @@ export async function paymentsRoutes(app: FastifyInstance) {
         position: ob.position,
         product: ob.bump_product,
       })),
-      // Info de assinatura (se aplicável)
       subscription: subscriptionPlan ? {
         id: subscriptionPlan.id,
         name: subscriptionPlan.name,
@@ -641,10 +613,9 @@ export async function paymentsRoutes(app: FastifyInstance) {
         trialDays: subscriptionPlan.trial_days,
         maxInstallments: subscriptionPlan.max_installments,
       } : null,
-      // Valores calculados baseados em quem paga os juros
       paymentOptions: {
         pix: {
-          total: baseValue, // PIX não tem juros
+          total: baseValue,
           feePayer,
         },
         card: {
