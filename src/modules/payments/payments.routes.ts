@@ -155,6 +155,9 @@ export async function paymentsRoutes(app: FastifyInstance) {
         include: { product: true, user: true },
       });
 
+      console.log('[CHECKOUT] Link encontrado:', link?.id);
+      console.log('[CHECKOUT] User do link:', link?.user?.name, '- payment_provider:', (link?.user as any)?.payment_provider);
+
       if (!link) {
         return reply.status(404).send({ 
           success: false, 
