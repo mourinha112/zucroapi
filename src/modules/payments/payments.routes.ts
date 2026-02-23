@@ -485,7 +485,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
     } : null);
 
     // Buscar orderbumps do produto (se existir produto vinculado)
-    let orderBumps = [];
+    let orderBumps: any[] = [];
     let subscriptionPlan = null;
     if (link.product_id) {
       orderBumps = await prisma.orderBump.findMany({

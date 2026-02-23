@@ -44,8 +44,9 @@ export async function withdrawalsRoutes(app: FastifyInstance) {
       }
 
       // Taxa de saque (padrão R$ 2,00 ou taxa customizada)
-      const withdrawalFee = user.custom_rates?.withdrawal_fee 
-        ? Number(user.custom_rates.withdrawal_fee) 
+      const customRates = user.custom_rates as any;
+      const withdrawalFee = customRates?.withdrawal_fee 
+        ? Number(customRates.withdrawal_fee) 
         : 2.00;
 
       const totalNeeded = body.amount + withdrawalFee;
