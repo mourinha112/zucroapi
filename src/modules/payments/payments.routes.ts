@@ -564,6 +564,9 @@ export async function paymentsRoutes(app: FastifyInstance) {
           });
         }
 
+        // Calcular taxas do boleto (similar ao PIX)
+        const feeCalc = calculatePixFeeSellerPays(baseValue, rates);
+
         // Criar cliente no Asaas
         const customerResult = await createAsaasCustomer({
           name: body.customerName,
@@ -602,7 +605,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
             net_value: feeCalc.netValue,
             status: 'PENDING',
             description,
-            due_date: new Date(boletoResult.dueDate),
+            due_date: new Date(boletoResult.dueDate || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)),
             asaas_payment_id: boletoResult.paymentId,
             payment_link_id: link.id,
             metadata: JSON.parse(JSON.stringify({
