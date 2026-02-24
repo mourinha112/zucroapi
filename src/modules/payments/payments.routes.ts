@@ -38,7 +38,18 @@ export async function paymentsRoutes(app: FastifyInstance) {
       skip: parseInt(query.offset || '0'),
     });
 
-    return reply.send({ success: true, payments });
+    // Extrair dados do cliente do metadata
+    const paymentsWithCustomer = payments.map(payment => {
+      const metadata = payment.metadata as any;
+      return {
+        ...payment,
+        customer_name: metadata?.customer_name || null,
+        customer_email: metadata?.customer_email || null,
+        customer_cpf: metadata?.customer_document || null,
+      };
+    });
+
+    return reply.send({ success: true, payments: paymentsWithCustomer });
   });
 
   // Obter pagamento por ID
@@ -56,7 +67,16 @@ export async function paymentsRoutes(app: FastifyInstance) {
       return reply.status(404).send({ error: 'Pagamento não encontrado' });
     }
 
-    return reply.send({ success: true, payment });
+    // Extrair dados do cliente do metadata
+    const metadata = payment.metadata as any;
+    const paymentWithCustomer = {
+      ...payment,
+      customer_name: metadata?.customer_name || null,
+      customer_email: metadata?.customer_email || null,
+      customer_cpf: metadata?.customer_document || null,
+    };
+
+    return reply.send({ success: true, payment: paymentWithCustomer });
   });
 
   // Listar links de pagamento

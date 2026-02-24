@@ -101,10 +101,21 @@ export async function usersRoutes(app: FastifyInstance) {
 
     const { password_hash, ...userData } = user;
 
+    // Extrair dados do cliente do metadata
+    const paymentsWithCustomer = recentPayments.map(payment => {
+      const metadata = payment.metadata as any;
+      return {
+        ...payment,
+        customer_name: metadata?.customer_name || null,
+        customer_email: metadata?.customer_email || null,
+        customer_cpf: metadata?.customer_document || null,
+      };
+    });
+
     return reply.send({
       success: true,
       user: userData,
-      recentPayments,
+      recentPayments: paymentsWithCustomer,
       recentTransactions,
     });
   });
