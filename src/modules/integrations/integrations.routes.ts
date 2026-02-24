@@ -8,6 +8,8 @@ import {
   calculatePixFeeSellerPays,
   calculateCardFeeSellerPays,
 } from '../../providers/efibank/fee.calculator';
+import { createAsaasCustomer } from '../../providers/asaas/asaas.pix';
+import { createAsaasBoletoCharge } from '../../providers/asaas/asaas.boleto';
 import crypto from 'crypto';
 import {
   authenticateApiKey,
@@ -19,7 +21,7 @@ import {
 
 // Schemas de validação
 const createChargeSchema = z.object({
-  billing_type: z.enum(['PIX', 'CREDIT_CARD', 'UNDEFINED']),
+  billing_type: z.enum(['PIX', 'CREDIT_CARD', 'BOLETO', 'UNDEFINED']),
   value: z.number().positive(),
   description: z.string().optional(),
   due_date: z.string().optional(),
@@ -275,6 +277,94 @@ export async function integrationsRoutes(app: FastifyInstance) {
           platform_fee: feeCalc.platformFee,
           payment_url: linkResult.success ? linkResult.paymentUrl : null,
           charge_id: chargeResult.chargeId,
+          created_at: payment.created_at,
+        };
+      }
+
+      // ========== BOLETO (apenas Asaas) ==========
+      else if (body.billing_type === 'BOLETO') {
+        const paymentProvider = (user as any).payment_provider || 'efibank';
+        if (paymentProvider !== 'asaas') {
+          return reply.status(400).send({
+            error: 'Boleto disponível apenas para contas com Asaas. Configure o provedor Asaas ou use PIX/Cartão.',
+            code: 'BOLETO_NOT_AVAILABLE',
+          });
+        }
+        if (!body.customer?.cpf_cnpj || !body.customer?.name) {
+          return reply.status(400).send({
+            error: 'Para boleto, customer.name e customer.cpf_cnpj são obrigatórios.',
+            code: 'CUSTOMER_REQUIRED',
+          });
+        }
+
+        const customerResult = await createAsaasCustomer({
+          name: body.customer.name,
+          cpfCnpj: body.customer.cpf_cnpj.replace(/\D/g, ''),
+          email: body.customer.email,
+          phone: body.customer.phone,
+        });
+
+        if (!customerResult.success || !customerResult.customerId) {
+          return reply.status(400).send({
+            error: customerResult.error || 'Erro ao registrar cliente',
+            code: 'CUSTOMER_CREATION_FAILED',
+          });
+        }
+
+        const boletoResult = await createAsaasBoletoCharge({
+          value: body.value,
+          description,
+          customerAsaasId: customerResult.customerId,
+          dueDate: body.due_date,
+        });
+
+        if (!boletoResult.success) {
+          return reply.status(400).send({
+            error: boletoResult.error || 'Erro ao gerar boleto',
+            code: 'BOLETO_CREATION_FAILED',
+          });
+        }
+
+        const feeCalc = calculatePixFeeSellerPays(body.value, rates);
+        const dueDateBoleto = boletoResult.dueDate ? new Date(boletoResult.dueDate) : new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+
+        payment = await prisma.payment.create({
+          data: {
+            user_id: user.id,
+            billing_type: 'BOLETO',
+            value: body.value,
+            net_value: feeCalc.netValue,
+            status: 'PENDING',
+            description,
+            due_date: dueDateBoleto,
+            asaas_payment_id: boletoResult.paymentId,
+            metadata: {
+              external_reference: body.external_reference,
+              callback_url: body.callback_url,
+              postback_url: body.postback_url || body.callback_url,
+              platform_fee: feeCalc.platformFee,
+              reserve_amount: feeCalc.reserveAmount,
+              customer_name: body.customer?.name,
+              customer_email: body.customer?.email,
+              customer_document: body.customer?.cpf_cnpj,
+              customer_phone: body.customer?.phone,
+              created_via: 'api',
+            },
+          },
+        });
+
+        chargeData = {
+          id: payment.id,
+          object: 'charge',
+          billing_type: 'BOLETO',
+          status: 'PENDING',
+          value: body.value,
+          net_value: feeCalc.netValue,
+          platform_fee: feeCalc.platformFee,
+          charge_id: boletoResult.paymentId,
+          barcode: boletoResult.barcode,
+          boleto_url: boletoResult.boletoUrl,
+          due_date: boletoResult.dueDate,
           created_at: payment.created_at,
         };
       }
