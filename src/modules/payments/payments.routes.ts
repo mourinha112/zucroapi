@@ -4,6 +4,7 @@ import { prisma } from '../../config/database';
 import { createPixCharge } from '../../providers/efibank/efi.pix';
 import { createCardCharge, payWithCardToken } from '../../providers/efibank/efi.card';
 import { createAsaasPixCharge, createAsaasCustomer } from '../../providers/asaas/asaas.pix';
+import { createAsaasBoletoCharge } from '../../providers/asaas/asaas.boleto';
 import { payWithAsaasCardToken } from '../../providers/asaas/asaas.card';
 import {
   getEffectiveRates,
@@ -193,7 +194,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
     try {
       const body = request.body as {
         linkId: string;
-        billingType: 'PIX' | 'CREDIT_CARD';
+        billingType: 'PIX' | 'CREDIT_CARD' | 'BOLETO';
         customerName: string;
         customerEmail: string;
         customerCpfCnpj?: string;
@@ -541,12 +542,104 @@ export async function paymentsRoutes(app: FastifyInstance) {
           status,
           installments,
         };
-      } 
+      }
+      else if (body.billingType === 'BOLETO') {
+        const paymentProvider = (link.user as any).payment_provider || 'efibank';
+        console.log(`[CHECKOUT BOLETO] Provedor configurado: ${paymentProvider}, vendedor: ${link.user.name}`);
+
+        // Para boleto, só funciona com Asaas no momento
+        if (paymentProvider !== 'asaas') {
+          return reply.send({
+            success: false,
+            message: 'Boleto ainda não está disponível para este vendedor. Tente outro método de pagamento.',
+            error: 'Boleto indisponível',
+          });
+        }
+
+        if (!body.customerCpfCnpj) {
+          return reply.send({
+            success: false,
+            message: 'CPF/CNPJ é obrigatório para pagamento via boleto.',
+            error: 'CPF/CNPJ obrigatório',
+          });
+        }
+
+        // Criar cliente no Asaas
+        const customerResult = await createAsaasCustomer({
+          name: body.customerName,
+          cpfCnpj: body.customerCpfCnpj,
+          email: body.customerEmail,
+          phone: body.customerPhone,
+        });
+
+        if (!customerResult.success || !customerResult.customerId) {
+          const errorMsg = customerResult.error || 'Erro ao registrar cliente no gateway';
+          console.error(`[CHECKOUT BOLETO] Asaas - erro no cliente: ${errorMsg}`, customerResult.debug);
+          return reply.send({ success: false, message: errorMsg, error: errorMsg });
+        }
+
+        // Criar cobrança de boleto
+        const boletoResult = await createAsaasBoletoCharge({
+          value: baseValue,
+          description,
+          customerAsaasId: customerResult.customerId,
+        });
+
+        if (!boletoResult.success) {
+          const errorMsg = boletoResult.error || 'Erro ao gerar boleto';
+          console.error(`[CHECKOUT BOLETO] Asaas - erro na cobrança: ${errorMsg}`, boletoResult.debug);
+          return reply.send({ success: false, message: errorMsg, error: errorMsg });
+        }
+
+        console.log(`[CHECKOUT BOLETO] Boleto gerado com sucesso: ${boletoResult.paymentId}`);
+
+        // Salvar pagamento no banco
+        const savedPayment = await prisma.payment.create({
+          data: {
+            user_id: link.user_id,
+            billing_type: 'BOLETO',
+            value: baseValue,
+            net_value: feeCalc.netValue,
+            status: 'PENDING',
+            description,
+            due_date: new Date(boletoResult.dueDate),
+            asaas_payment_id: boletoResult.paymentId,
+            payment_link_id: link.id,
+            metadata: JSON.parse(JSON.stringify({
+              base_value: baseValue,
+              platform_fee: feeCalc.platformFee,
+              reserve_amount: feeCalc.reserveAmount,
+              fee_payer: feePayer,
+              seller_rates: rates,
+              payment_provider: paymentProvider,
+              customer_ip: clientIp,
+              customer_name: body.customerName,
+              customer_email: body.customerEmail,
+              customer_document: body.customerCpfCnpj,
+              customer_phone: body.customerPhone,
+            })),
+          },
+        });
+
+        await prisma.paymentLink.update({
+          where: { id: link.id },
+          data: { payments_count: { increment: 1 } },
+        });
+
+        payment = {
+          id: savedPayment.id,
+          chargeId: boletoResult.paymentId,
+          status: 'PENDING',
+          barcode: boletoResult.barcode,
+          boletoUrl: boletoResult.boletoUrl,
+          dueDate: boletoResult.dueDate,
+        };
+      }
       else {
         return reply.status(400).send({
           success: false,
           message: 'Método de pagamento inválido',
-          error: 'billingType deve ser PIX ou CREDIT_CARD',
+          error: 'billingType deve ser PIX, CREDIT_CARD ou BOLETO',
         });
       }
 
