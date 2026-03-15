@@ -27,6 +27,12 @@ export const env = {
   // Asaas
   ASAAS_API_KEY: process.env.ASAAS_API_KEY || '',
   ASAAS_SANDBOX: process.env.ASAAS_SANDBOX === 'true',
+
+  // SharkBanking
+  SHARK_PUBLIC_KEY: process.env.SHARK_PUBLIC_KEY || '',
+  SHARK_SECRET_KEY: process.env.SHARK_SECRET_KEY || '',
+  SHARK_WITHDRAW_KEY: process.env.SHARK_WITHDRAW_KEY || '',
+  SHARK_WEBHOOK_URL: process.env.SHARK_WEBHOOK_URL || '',
   
   // Push Notifications
   VAPID_PUBLIC_KEY: process.env.VAPID_PUBLIC_KEY || '',
@@ -39,7 +45,7 @@ export const env = {
 
 // Validar variáveis obrigatórias em produção
 if (env.NODE_ENV === 'production') {
-  const required = ['DATABASE_URL', 'JWT_SECRET', 'EFI_CLIENT_ID', 'EFI_CLIENT_SECRET', 'EFI_PIX_KEY'];
+  const required = ['DATABASE_URL', 'JWT_SECRET', 'SHARK_PUBLIC_KEY', 'SHARK_SECRET_KEY'];
   for (const key of required) {
     if (!process.env[key]) {
       throw new Error(`Variável de ambiente ${key} é obrigatória em produção`);

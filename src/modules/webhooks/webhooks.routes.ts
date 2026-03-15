@@ -407,6 +407,182 @@ export async function webhooksRoutes(app: FastifyInstance) {
     return reply.send({ received: true });
   });
 
+  // ========== Webhook do SharkBanking ==========
+  app.post('/shark', {
+    preHandler: [webhookRateLimit],
+  }, async (request, reply) => {
+    const body = request.body as any;
+
+    console.log('[WEBHOOK] ========== SharkBanking Webhook ==========');
+    console.log('[WEBHOOK] Type:', body.type);
+    console.log('[WEBHOOK] ObjectId:', body.objectId);
+    console.log('[WEBHOOK] Status:', body.data?.status);
+    console.log('[WEBHOOK] Body:', JSON.stringify(body, null, 2));
+
+    // SharkBanking envia postback com type "transaction" e dados em "data"
+    if (body.type !== 'transaction' || !body.data) {
+      console.log('[WEBHOOK] ⚠️ Evento não é transação, ignorando');
+      return reply.send({ received: true });
+    }
+
+    const transactionData = body.data;
+    const sharkTransactionId = String(transactionData.id);
+
+    // Buscar pagamento pelo shark_transaction_id (armazenado no efi_txid)
+    const payment = await prisma.payment.findFirst({
+      where: { efi_txid: sharkTransactionId },
+      include: { user: true },
+    });
+
+    if (!payment) {
+      console.log(`[WEBHOOK] Pagamento SharkBanking não encontrado: ${sharkTransactionId}`);
+      return reply.send({ received: true });
+    }
+
+    let newStatus = payment.status;
+
+    // Mapeamento de status SharkBanking → ZucroPay
+    if (transactionData.status === 'paid' || transactionData.status === 'approved') {
+      newStatus = 'RECEIVED';
+    } else if (transactionData.status === 'waiting_payment' || transactionData.status === 'pending') {
+      newStatus = 'PENDING';
+    } else if (transactionData.status === 'refused') {
+      newStatus = 'REFUSED';
+    } else if (transactionData.status === 'refunded' || transactionData.status === 'chargeback') {
+      newStatus = 'REFUNDED';
+    } else if (transactionData.status === 'cancelled') {
+      newStatus = 'CANCELLED';
+    }
+
+    if (newStatus !== payment.status) {
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: {
+          status: newStatus,
+          payment_date: newStatus === 'RECEIVED' ? new Date() : payment.payment_date,
+        },
+      });
+
+      console.log(`[WEBHOOK] SharkBanking ${sharkTransactionId} atualizado: ${newStatus}`);
+
+      // Enviar postback
+      const sharkEventMap: Record<string, string> = {
+        'RECEIVED': 'charge.paid',
+        'REFUNDED': 'charge.refunded',
+        'CANCELLED': 'charge.cancelled',
+        'REFUSED': 'charge.refused',
+        'PENDING': 'charge.pending',
+      };
+      sendChargePostback(payment, sharkEventMap[newStatus] || `charge.${newStatus.toLowerCase()}`);
+
+      // Se foi pago, processar saldo
+      if (newStatus === 'RECEIVED') {
+        const grossValue = Number(payment.value);
+
+        // Buscar taxas do vendedor
+        const customRates = await prisma.userCustomRate.findUnique({
+          where: { user_id: payment.user_id },
+        });
+
+        const rates = await getEffectiveRates(customRates ? {
+          pix_rate: customRates.pix_rate ? Number(customRates.pix_rate) : undefined,
+        } : null);
+
+        const feeCalc = calculatePixFeeSellerPays(grossValue, rates);
+
+        // Atualizar net_value no pagamento
+        await prisma.payment.update({
+          where: { id: payment.id },
+          data: {
+            net_value: feeCalc.netValue,
+            metadata: JSON.parse(JSON.stringify({
+              ...(payment.metadata as any),
+              platform_fee: feeCalc.platformFee,
+              reserve_amount: feeCalc.reserveAmount,
+              provider: 'sharkbanking',
+            })),
+          },
+        });
+
+        // Atualizar saldo do seller
+        await prisma.user.update({
+          where: { id: payment.user_id },
+          data: {
+            balance: { increment: feeCalc.netValue },
+            reserved_balance: { increment: feeCalc.reserveAmount },
+          },
+        });
+
+        // Criar reserva de segurança (5%)
+        await prisma.balanceReserve.create({
+          data: {
+            user_id: payment.user_id,
+            payment_id: payment.id,
+            original_amount: grossValue,
+            reserve_amount: feeCalc.reserveAmount,
+            status: 'held',
+            release_date: calculateReleaseDate(rates.reserve_days),
+            description: `Reserva 5% - ${payment.description}`,
+          },
+        });
+
+        // Criar transação
+        await prisma.transaction.create({
+          data: {
+            user_id: payment.user_id,
+            type: 'deposit',
+            amount: feeCalc.netValue,
+            status: 'completed',
+            description: `PIX recebido (SharkBanking) - ${payment.description}`,
+            metadata: {
+              shark_transaction_id: sharkTransactionId,
+              payment_id: payment.id,
+              billing_type: 'PIX',
+              gross_value: grossValue,
+              platform_fee: feeCalc.platformFee,
+              reserve_amount: feeCalc.reserveAmount,
+            },
+          },
+        });
+
+        // Atualizar link de pagamento
+        if (payment.payment_link_id) {
+          await prisma.paymentLink.update({
+            where: { id: payment.payment_link_id },
+            data: { total_received: { increment: grossValue } },
+          });
+        }
+
+        console.log(`[WEBHOOK] SharkBanking pagamento processado: ${payment.id} - R$${feeCalc.netValue.toFixed(2)} líquido`);
+
+        // Notificação push
+        try {
+          const customerName = transactionData.customer?.name || 'Cliente';
+          await notifySale(payment.user_id, grossValue, customerName, payment.id);
+        } catch (pushError) {
+          console.error('[WEBHOOK] Erro push:', pushError);
+        }
+
+        // Postback para webhooks do seller
+        try {
+          await sendUserWebhook(payment.user_id, 'payment.received', {
+            payment_id: payment.id,
+            value: grossValue,
+            net_value: feeCalc.netValue,
+            status: 'RECEIVED',
+            billing_type: 'PIX',
+            provider: 'sharkbanking',
+          });
+        } catch (webhookError) {
+          console.error('[WEBHOOK] Erro postback:', webhookError);
+        }
+      }
+    }
+
+    console.log('[WEBHOOK] ========================================');
+    return reply.send({ received: true });
+  });
+
   // Listar webhooks do usuário (autenticado)
   app.get('/', {
     preHandler: [standardRateLimit, authenticate],

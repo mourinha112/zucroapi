@@ -1,17 +1,10 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../../config/database';
-import { createPixCharge } from '../../providers/efibank/efi.pix';
-import { createCardCharge, payWithCardToken } from '../../providers/efibank/efi.card';
-import { createAsaasPixCharge, createAsaasCustomer } from '../../providers/asaas/asaas.pix';
-import { createAsaasBoletoCharge } from '../../providers/asaas/asaas.boleto';
-import { payWithAsaasCardToken } from '../../providers/asaas/asaas.card';
+import { createSharkPixCharge } from '../../providers/sharkbanking/shark.pix';
 import {
   getEffectiveRates,
   calculatePixFeeSellerPays,
-  calculateCardFeeSellerPays,
-  calculateCardFeeBuyerPays,
-  calculateTotalForBuyer,
   calculateReleaseDate,
 } from '../../providers/efibank/fee.calculator';
 import { 
@@ -194,15 +187,11 @@ export async function paymentsRoutes(app: FastifyInstance) {
     try {
       const body = request.body as {
         linkId: string;
-        billingType: 'PIX' | 'CREDIT_CARD' | 'BOLETO';
+        billingType: 'PIX';
         customerName: string;
         customerEmail: string;
         customerCpfCnpj?: string;
         customerPhone?: string;
-        cardPaymentToken?: string;
-        cardInstallments?: number;
-        billingAddress?: any;
-        totalValue?: number;
       };
 
       // Capturar IP do cliente
@@ -236,415 +225,88 @@ export async function paymentsRoutes(app: FastifyInstance) {
         boleto_rate: customRates.boleto_rate ? Number(customRates.boleto_rate) : undefined,
       } : null);
 
-      const feePayer = (link.product as any)?.fee_payer || 'seller';
       const baseValue = Number(link.amount);
       const description = link.product?.name || link.name || 'Pagamento ZucroPay';
-      const installments = body.cardInstallments || 1;
 
-      const grossValue = calculateTotalForBuyer(
-        baseValue,
-        body.billingType as 'PIX' | 'CREDIT_CARD' | 'BOLETO',
-        installments,
-        feePayer,
-        rates
-      );
-
-      let payment: any;
-
-      if (body.billingType === 'PIX') {
-        const paymentProvider = (link.user as any).payment_provider || 'efibank';
-        console.log(`[CHECKOUT PIX] Provedor configurado: ${paymentProvider}, vendedor: ${link.user.name} (${link.user_id})`);
-
-        let pixCode = '';
-        let pixQrCode = '';
-        let paymentId = '';
-
-        if (paymentProvider === 'asaas') {
-          if (!body.customerCpfCnpj) {
-            return reply.send({ 
-              success: false, 
-              message: 'CPF/CNPJ é obrigatório para este vendedor. Por favor, preencha o campo.',
-              error: 'CPF/CNPJ obrigatório',
-            });
-          }
-
-          const customerResult = await createAsaasCustomer({
-            name: body.customerName,
-            cpfCnpj: body.customerCpfCnpj,
-            email: body.customerEmail,
-            phone: body.customerPhone,
-          });
-
-          if (!customerResult.success || !customerResult.customerId) {
-            const errorMsg = customerResult.error || 'Erro ao registrar cliente no gateway';
-            console.error(`[CHECKOUT PIX] Asaas - erro no cliente: ${errorMsg}`, customerResult.debug);
-            return reply.send({ success: false, message: errorMsg, error: errorMsg });
-          }
-
-          const asaasResult = await createAsaasPixCharge({
-            value: baseValue,
-            description,
-            customerAsaasId: customerResult.customerId,
-          });
-
-          if (!asaasResult.success) {
-            const errorMsg = asaasResult.error || 'Erro ao gerar cobrança PIX';
-            console.error(`[CHECKOUT PIX] Asaas - erro na cobrança: ${errorMsg}`, asaasResult.debug);
-            return reply.send({ success: false, message: errorMsg, error: errorMsg });
-          }
-
-          pixCode = asaasResult.pixCode || '';
-          pixQrCode = asaasResult.pixQrCode || '';
-          paymentId = asaasResult.paymentId || asaasResult.externalReference || '';
-        } else {
-          const pixResult = await createPixCharge({
-            value: baseValue,
-            description,
-            customerCpf: body.customerCpfCnpj,
-            customerName: body.customerName,
-          });
-
-          if (!pixResult.success) {
-            const errorMsg = pixResult.error || 'Erro ao gerar cobrança PIX';
-            console.error(`[CHECKOUT PIX] EfiBank falhou: ${errorMsg}`, pixResult.debug);
-            return reply.send({ success: false, message: errorMsg, error: errorMsg });
-          }
-
-          pixCode = pixResult.pixCode || '';
-          pixQrCode = pixResult.pixQrCode || '';
-          paymentId = pixResult.txid || '';
-        }
-
-        if (!pixCode) {
-          return reply.send({ 
-            success: false, 
-            message: 'Não foi possível gerar o código PIX. Tente novamente.', 
-            error: 'PIX vazio' 
-          });
-        }
-
-        const feeCalc = calculatePixFeeSellerPays(baseValue, rates);
-
-        const savedPayment = await prisma.payment.create({
-          data: {
-            user_id: link.user_id,
-            billing_type: 'PIX',
-            value: baseValue,
-            net_value: feeCalc.netValue,
-            status: 'PENDING',
-            description,
-            due_date: new Date(),
-            efi_txid: paymentProvider === 'efibank' ? paymentId : null,
-            asaas_payment_id: paymentProvider === 'asaas' ? paymentId : null,
-            pix_qrcode: pixQrCode,
-            pix_copy_paste: pixCode,
-            payment_link_id: link.id,
-            metadata: JSON.parse(JSON.stringify({
-              base_value: baseValue,
-              platform_fee: feeCalc.platformFee,
-              reserve_amount: feeCalc.reserveAmount,
-              fee_payer: feePayer,
-              seller_rates: rates,
-              payment_provider: paymentProvider,
-              customer_ip: clientIp,
-              customer_name: body.customerName,
-              customer_email: body.customerEmail,
-              customer_document: body.customerCpfCnpj,
-              customer_phone: body.customerPhone,
-            })),
-          },
-        });
-
-        await prisma.paymentLink.update({
-          where: { id: link.id },
-          data: { payments_count: { increment: 1 } },
-        });
-
-        payment = {
-          id: savedPayment.id,
-          txid: paymentId,
-          status: 'PENDING',
-          pixCode,
-          pixQrCode,
-        };
-      } 
-      else if (body.billingType === 'CREDIT_CARD') {
-        const paymentProvider = (link.user as any).payment_provider || 'efibank';
-        console.log(`[CHECKOUT CARD] Provedor configurado: ${paymentProvider}, vendedor: ${link.user.name}`);
-
-        let cardPaymentResult: any;
-        let cardPaymentId: string = '';
-        let cardStatus: string = 'PENDING';
-
-        if (paymentProvider === 'asaas') {
-          if (!body.cardPaymentToken) {
-            return reply.send({ success: false, message: 'Token do cartão é obrigatório', error: 'Token obrigatório' });
-          }
-
-          const customerResult = await createAsaasCustomer({
-            name: body.customerName,
-            cpfCnpj: body.customerCpfCnpj || '',
-            email: body.customerEmail,
-            phone: body.customerPhone,
-          });
-
-          if (!customerResult.success || !customerResult.customerId) {
-            return reply.send({ 
-              success: false, 
-              message: customerResult.error || 'Erro ao registrar cliente no Asaas' 
-            });
-          }
-
-          const payResult = await payWithAsaasCardToken(
-            customerResult.customerId,
-            grossValue,
-            body.cardPaymentToken,
-            installments,
-            {
-              name: body.customerName,
-              document: body.customerCpfCnpj || '',
-              email: body.customerEmail,
-              phone: body.customerPhone || '',
-            },
-            description
-          );
-
-          cardPaymentResult = payResult;
-          cardPaymentId = payResult.paymentId || '';
-          cardStatus = payResult.status || 'PENDING';
-        } else {
-          const chargeResult = await createCardCharge({ value: grossValue, description });
-
-          if (!chargeResult.success) {
-            return reply.send({ 
-              success: false, 
-              message: chargeResult.error || 'Erro ao criar cobrança de cartão' 
-            });
-          }
-
-          if (!body.cardPaymentToken) {
-            return reply.send({ success: false, message: 'Token do cartão é obrigatório', error: 'Token obrigatório' });
-          }
-
-          const payResult = await payWithCardToken(chargeResult.chargeId!, {
-            value: grossValue,
-            description,
-            installments,
-            paymentToken: body.cardPaymentToken,
-            customer: {
-              name: body.customerName,
-              email: body.customerEmail,
-              cpf: body.customerCpfCnpj || '',
-              phone: body.customerPhone,
-            },
-            billingAddress: body.billingAddress,
-          });
-
-          cardPaymentResult = payResult;
-          cardPaymentId = chargeResult.chargeId!.toString();
-          cardStatus = payResult.status === 'RECEIVED' ? 'RECEIVED' : 'PENDING';
-        }
-
-        if (!cardPaymentResult?.success) {
-          return reply.send({
-            success: false,
-            message: cardPaymentResult?.error || 'Erro ao processar pagamento com cartão',
-            error: cardPaymentResult?.error,
-            cardRefused: cardPaymentResult?.cardRefused,
-            canRetry: cardPaymentResult?.canRetry,
-          });
-        }
-
-        const feeCalc = feePayer === 'buyer'
-          ? calculateCardFeeBuyerPays(baseValue, installments, rates)
-          : calculateCardFeeSellerPays(baseValue, installments, rates);
-
-        const status = cardStatus === 'RECEIVED' || cardStatus === 'CONFIRMED' ? 'RECEIVED' : 'PENDING';
-
-        const savedPayment = await prisma.payment.create({
-          data: {
-            user_id: link.user_id,
-            billing_type: 'CREDIT_CARD',
-            value: grossValue,
-            net_value: feeCalc.netValue,
-            status,
-            description,
-            due_date: new Date(),
-            payment_date: status === 'RECEIVED' ? new Date() : null,
-            efi_charge_id: paymentProvider === 'efibank' ? cardPaymentId : null,
-            asaas_payment_id: paymentProvider === 'asaas' ? cardPaymentId : null,
-            payment_link_id: link.id,
-            metadata: JSON.parse(JSON.stringify({
-              base_value: baseValue,
-              gross_value: grossValue,
-              platform_fee: feeCalc.platformFee,
-              installment_fee: feeCalc.installmentFee,
-              reserve_amount: feeCalc.reserveAmount,
-              installments,
-              fee_payer: feePayer,
-              seller_rates: rates,
-              payment_provider: paymentProvider,
-              customer_ip: clientIp,
-              customer_name: body.customerName,
-              customer_email: body.customerEmail,
-              customer_document: body.customerCpfCnpj,
-              customer_phone: body.customerPhone,
-            })),
-          },
-        });
-
-        if (status === 'RECEIVED') {
-          await prisma.user.update({
-            where: { id: link.user_id },
-            data: {
-              balance: { increment: feeCalc.netValue },
-              reserved_balance: { increment: feeCalc.reserveAmount },
-            },
-          });
-
-          await prisma.balanceReserve.create({
-            data: {
-              user_id: link.user_id,
-              payment_id: savedPayment.id,
-              original_amount: baseValue,
-              reserve_amount: feeCalc.reserveAmount,
-              status: 'held',
-              release_date: calculateReleaseDate(rates.reserve_days),
-              description: `Reserva 5% - ${description}`,
-            },
-          });
-
-          await prisma.transaction.create({
-            data: {
-              user_id: link.user_id,
-              type: 'payment_received',
-              amount: grossValue,
-              status: 'completed',
-              description: `Venda com cartão ${installments}x - ${description}`,
-              efi_charge_id: paymentProvider === 'efibank' ? cardPaymentId : undefined,
-              asaas_payment_id: paymentProvider === 'asaas' ? cardPaymentId : undefined,
-              metadata: feeCalc as any,
-            },
-          });
-        }
-
-        await prisma.paymentLink.update({
-          where: { id: link.id },
-          data: {
-            payments_count: { increment: 1 },
-            total_received: status === 'RECEIVED' ? { increment: grossValue } : undefined,
-          },
-        });
-
-        payment = {
-          id: savedPayment.id,
-          chargeId: cardPaymentId,
-          status,
-          installments,
-        };
-      }
-      else if (body.billingType === 'BOLETO') {
-        const paymentProvider = (link.user as any).payment_provider || 'efibank';
-        console.log(`[CHECKOUT BOLETO] Provedor configurado: ${paymentProvider}, vendedor: ${link.user.name}`);
-
-        // Para boleto, só funciona com Asaas no momento
-        if (paymentProvider !== 'asaas') {
-          return reply.send({
-            success: false,
-            message: 'Boleto ainda não está disponível para este vendedor. Tente outro método de pagamento.',
-            error: 'Boleto indisponível',
-          });
-        }
-
-        if (!body.customerCpfCnpj) {
-          return reply.send({
-            success: false,
-            message: 'CPF/CNPJ é obrigatório para pagamento via boleto.',
-            error: 'CPF/CNPJ obrigatório',
-          });
-        }
-
-        // Calcular taxas do boleto (similar ao PIX)
-        const feeCalc = calculatePixFeeSellerPays(baseValue, rates);
-
-        // Criar cliente no Asaas
-        const customerResult = await createAsaasCustomer({
-          name: body.customerName,
-          cpfCnpj: body.customerCpfCnpj,
-          email: body.customerEmail,
-          phone: body.customerPhone,
-        });
-
-        if (!customerResult.success || !customerResult.customerId) {
-          const errorMsg = customerResult.error || 'Erro ao registrar cliente no gateway';
-          console.error(`[CHECKOUT BOLETO] Asaas - erro no cliente: ${errorMsg}`, customerResult.debug);
-          return reply.send({ success: false, message: errorMsg, error: errorMsg });
-        }
-
-        // Criar cobrança de boleto
-        const boletoResult = await createAsaasBoletoCharge({
-          value: baseValue,
-          description,
-          customerAsaasId: customerResult.customerId,
-        });
-
-        if (!boletoResult.success) {
-          const errorMsg = boletoResult.error || 'Erro ao gerar boleto';
-          console.error(`[CHECKOUT BOLETO] Asaas - erro na cobrança: ${errorMsg}`, boletoResult.debug);
-          return reply.send({ success: false, message: errorMsg, error: errorMsg });
-        }
-
-        console.log(`[CHECKOUT BOLETO] Boleto gerado com sucesso: ${boletoResult.paymentId}`);
-
-        // Salvar pagamento no banco
-        const savedPayment = await prisma.payment.create({
-          data: {
-            user_id: link.user_id,
-            billing_type: 'BOLETO',
-            value: baseValue,
-            net_value: feeCalc.netValue,
-            status: 'PENDING',
-            description,
-            due_date: new Date(boletoResult.dueDate || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)),
-            asaas_payment_id: boletoResult.paymentId,
-            payment_link_id: link.id,
-            metadata: JSON.parse(JSON.stringify({
-              base_value: baseValue,
-              platform_fee: feeCalc.platformFee,
-              reserve_amount: feeCalc.reserveAmount,
-              fee_payer: feePayer,
-              seller_rates: rates,
-              payment_provider: paymentProvider,
-              customer_ip: clientIp,
-              customer_name: body.customerName,
-              customer_email: body.customerEmail,
-              customer_document: body.customerCpfCnpj,
-              customer_phone: body.customerPhone,
-            })),
-          },
-        });
-
-        await prisma.paymentLink.update({
-          where: { id: link.id },
-          data: { payments_count: { increment: 1 } },
-        });
-
-        payment = {
-          id: savedPayment.id,
-          chargeId: boletoResult.paymentId,
-          status: 'PENDING',
-          barcode: boletoResult.barcode,
-          boletoUrl: boletoResult.boletoUrl,
-          dueDate: boletoResult.dueDate,
-        };
-      }
-      else {
+      // Somente PIX via SharkBanking
+      if (body.billingType !== 'PIX') {
         return reply.status(400).send({
           success: false,
-          message: 'Método de pagamento inválido',
-          error: 'billingType deve ser PIX, CREDIT_CARD ou BOLETO',
+          message: 'Apenas pagamento via PIX está disponível.',
+          error: 'Somente PIX disponível',
         });
       }
+
+      console.log(`[CHECKOUT PIX] SharkBanking - vendedor: ${link.user.name} (${link.user_id})`);
+
+      const sharkResult = await createSharkPixCharge({
+        value: baseValue,
+        description,
+        customerName: body.customerName,
+        customerEmail: body.customerEmail,
+        customerCpf: body.customerCpfCnpj,
+        customerPhone: body.customerPhone,
+        externalRef: `zp_${link.id}_${Date.now()}`,
+      });
+
+      if (!sharkResult.success) {
+        const errorMsg = sharkResult.error || 'Erro ao gerar cobrança PIX';
+        console.error(`[CHECKOUT PIX] SharkBanking falhou: ${errorMsg}`, sharkResult.debug);
+        return reply.send({ success: false, message: errorMsg, error: errorMsg });
+      }
+
+      if (!sharkResult.pixCode) {
+        return reply.send({
+          success: false,
+          message: 'Não foi possível gerar o código PIX. Tente novamente.',
+          error: 'PIX vazio',
+        });
+      }
+
+      const feeCalc = calculatePixFeeSellerPays(baseValue, rates);
+
+      const savedPayment = await prisma.payment.create({
+        data: {
+          user_id: link.user_id,
+          billing_type: 'PIX',
+          value: baseValue,
+          net_value: feeCalc.netValue,
+          status: 'PENDING',
+          description,
+          due_date: new Date(),
+          efi_txid: sharkResult.transactionId,
+          pix_qrcode: sharkResult.pixQrCode,
+          pix_copy_paste: sharkResult.pixCode,
+          payment_link_id: link.id,
+          metadata: JSON.parse(JSON.stringify({
+            base_value: baseValue,
+            platform_fee: feeCalc.platformFee,
+            reserve_amount: feeCalc.reserveAmount,
+            fee_payer: 'seller',
+            seller_rates: rates,
+            payment_provider: 'sharkbanking',
+            shark_transaction_id: sharkResult.transactionId,
+            customer_ip: clientIp,
+            customer_name: body.customerName,
+            customer_email: body.customerEmail,
+            customer_document: body.customerCpfCnpj,
+            customer_phone: body.customerPhone,
+          })),
+        },
+      });
+
+      await prisma.paymentLink.update({
+        where: { id: link.id },
+        data: { payments_count: { increment: 1 } },
+      });
+
+      const payment = {
+        id: savedPayment.id,
+        txid: sharkResult.transactionId,
+        status: 'PENDING',
+        pixCode: sharkResult.pixCode,
+        pixQrCode: sharkResult.pixQrCode,
+      };
 
       // Sucesso
       return reply.send({ success: true, payment });
@@ -728,21 +390,14 @@ export async function paymentsRoutes(app: FastifyInstance) {
     const baseValue = Number(link.amount);
     const feePayer = (link.product as any)?.fee_payer || 'seller';
 
-    const installmentOptions = [];
-    for (let i = 1; i <= 12; i++) {
-      const total = calculateTotalForBuyer(baseValue, 'CREDIT_CARD', i, feePayer, rates);
-      const installmentValue = total / i;
-      const fee = total - baseValue;
-      installmentOptions.push({
-        installments: i,
-        total: Math.round(total * 100) / 100,
-        installmentValue: Math.round(installmentValue * 100) / 100,
-        fee: Math.round(fee * 100) / 100,
-        label: i === 1 
-          ? `À vista - R$ ${baseValue.toFixed(2)}` 
-          : `${i}x de R$ ${installmentValue.toFixed(2)} (Total: R$ ${total.toFixed(2)})`,
-      });
-    }
+    // Somente PIX - sem opções de parcelamento
+    const installmentOptions = [{
+      installments: 1,
+      total: baseValue,
+      installmentValue: baseValue,
+      fee: 0,
+      label: `À vista - R$ ${baseValue.toFixed(2)}`,
+    }];
 
     return reply.send({
       success: true,

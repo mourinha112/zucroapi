@@ -353,67 +353,24 @@ export async function adminRoutes(app: FastifyInstance) {
       });
     }
 
-    // Se aprovado, enviar PIX automaticamente
+    // Se aprovado, enviar PIX automaticamente via SharkBanking
     if (body.status === 'approved' && withdrawal.status === 'pending') {
       try {
-        // Buscar o provedor de pagamento do seller
         const seller = await prisma.user.findUnique({
           where: { id: withdrawal.user_id },
-          select: { payment_provider: true, name: true },
+          select: { name: true },
         });
-        const paymentProvider = (seller as any)?.payment_provider || 'efibank';
-        
-        console.log(`[SAQUE] Processando saque automático ID: ${id}`);
+
+        console.log(`[SAQUE] Processando saque automático via SharkBanking ID: ${id}`);
         console.log(`[SAQUE] Valor: R$ ${withdrawal.amount}, Chave: ${withdrawal.pix_key}`);
-        console.log(`[SAQUE] Provedor do seller: ${paymentProvider}`);
 
-        let pixResult: any;
-
-        if (paymentProvider === 'asaas') {
-          // Saque via Asaas
-          const { createAsaasPixTransfer } = await import('../../providers/asaas/asaas.pix');
-          
-          // Verificar tipo de saque
-          if (withdrawal.withdrawal_type === 'bank' && withdrawal.bank_code) {
-            // Saque com dados bancários
-            pixResult = await createAsaasPixTransfer({
-              value: Number(withdrawal.amount),
-              bankCode: withdrawal.bank_code,
-              bankName: withdrawal.bank_name || undefined,
-              agency: withdrawal.agency || undefined,
-              accountNumber: withdrawal.account_number || undefined,
-              accountDigit: withdrawal.account_digit || undefined,
-              accountType: withdrawal.account_type || undefined,
-              holderName: withdrawal.holder_name || undefined,
-              holderDocument: withdrawal.holder_document || undefined,
-              description: `Saque ZucroPay - ${seller?.name || 'Usuario'}`,
-            });
-          } else {
-            // Saque via chave PIX
-            pixResult = await createAsaasPixTransfer({
-              value: Number(withdrawal.amount),
-              pixKey: withdrawal.pix_key!,
-              pixKeyType: withdrawal.pix_key_type || 'cpf',
-              holderName: withdrawal.holder_name || undefined,
-              holderDocument: withdrawal.holder_document || undefined,
-              description: `Saque ZucroPay - ${seller?.name || 'Usuario'}`,
-            });
-          }
-          // Normalizar resposta Asaas para o mesmo formato
-          if (pixResult.success) {
-            pixResult.endToEndId = pixResult.transferId || '';
-            pixResult.idEnvio = pixResult.transferId || '';
-          }
-        } else {
-          // Saque via EfiBank
-          const { createPixTransfer } = await import('../../providers/efibank/efi.pix');
-          pixResult = await createPixTransfer({
-            value: Number(withdrawal.amount),
-            pixKey: withdrawal.pix_key!,
-            pixKeyType: withdrawal.pix_key_type || 'cpf',
-            description: `Saque ZucroPay - ${seller?.name || 'Usuario'}`,
-          });
-        }
+        const { createSharkPixTransfer } = await import('../../providers/sharkbanking/shark.pix');
+        const pixResult = await createSharkPixTransfer({
+          value: Number(withdrawal.amount),
+          pixKey: withdrawal.pix_key!,
+          pixKeyType: withdrawal.pix_key_type || 'cpf',
+          description: `Saque ZucroPay - ${seller?.name || 'Usuario'}`,
+        });
 
         if (!pixResult.success) {
           console.error(`[SAQUE] Erro ao enviar PIX:`, pixResult.error);
@@ -447,7 +404,7 @@ export async function adminRoutes(app: FastifyInstance) {
             reviewed_at: new Date(),
             completed_at: new Date(),
             // Salvar dados da transação PIX no campo admin_notes
-            admin_notes: `PIX enviado automaticamente. E2E: ${pixResult.endToEndId || pixResult.idEnvio}`,
+            admin_notes: `PIX enviado automaticamente via SharkBanking. E2E: ${pixResult.endToEndId || pixResult.transferId}`,
           },
         });
 
@@ -458,9 +415,9 @@ export async function adminRoutes(app: FastifyInstance) {
             action: 'approved_withdrawal_auto_pix',
             target_type: 'withdrawal',
             target_id: id,
-            details: { 
+            details: {
               endToEndId: pixResult.endToEndId,
-              idEnvio: pixResult.idEnvio,
+              transferId: pixResult.transferId,
               status: pixResult.status,
             },
           },
