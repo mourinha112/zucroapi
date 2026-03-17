@@ -65,6 +65,7 @@ model User {
   customer_subscriptions Subscription[] @relation("CustomerSubscriptions") // Assinaturas onde o usuário é cliente
   tickets                Ticket[]
   ticket_messages        TicketMessage[]
+  coupons                Coupon[]
 
   @@map("users")
 }
@@ -106,6 +107,7 @@ model Product {
   checkout_customization CheckoutCustomization?
   order_bumps           OrderBump[]             @relation("OrderBumpMainProduct")
   offer_order_bumps     OrderBump[]             @relation("OrderBumpOfferProduct")
+  coupons               Coupon[]
 
   @@map("products")
 }
@@ -588,6 +590,34 @@ model TicketMessage {
   user   User?  @relation(fields: [user_id], references: [id])
 
   @@map("ticket_messages")
+}
+
+// ============================================
+// CUPONS DE DESCONTO
+// ============================================
+
+model Coupon {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id         String    @db.Uuid
+  code            String    @db.VarChar(50)
+  discount_type   String    @default("percentage") @db.VarChar(20) // percentage, fixed
+  discount_value  Decimal   @db.Decimal(10, 2)
+  max_uses        Int?      // null = ilimitado
+  used_count      Int       @default(0)
+  min_value       Decimal?  @db.Decimal(10, 2) // valor mínimo do pedido
+  max_discount    Decimal?  @db.Decimal(10, 2) // teto do desconto (p/ percentual)
+  product_id      String?   @db.Uuid // null = todos os produtos
+  starts_at       DateTime? @db.Timestamptz
+  expires_at      DateTime? @db.Timestamptz
+  active          Boolean   @default(true)
+  created_at      DateTime  @default(now()) @db.Timestamptz
+  updated_at      DateTime  @default(now()) @db.Timestamptz
+
+  user    User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [product_id], references: [id])
+
+  @@unique([user_id, code])
+  @@map("coupons")
 }
 
 model SubscriptionPayment {

@@ -192,6 +192,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
         customerEmail: string;
         customerCpfCnpj?: string;
         customerPhone?: string;
+        couponCode?: string;
       };
 
       // Capturar IP do cliente
@@ -225,8 +226,58 @@ export async function paymentsRoutes(app: FastifyInstance) {
         boleto_rate: customRates.boleto_rate ? Number(customRates.boleto_rate) : undefined,
       } : null);
 
-      const baseValue = Number(link.amount);
+      let baseValue = Number(link.amount);
+      const originalValue = baseValue;
       const description = link.product?.name || link.name || 'Pagamento ZucroPay';
+      let appliedCoupon: any = null;
+
+      // Aplicar cupom de desconto se informado
+      if (body.couponCode) {
+        const coupon = await prisma.coupon.findUnique({
+          where: { user_id_code: { user_id: link.user_id, code: body.couponCode.toUpperCase().trim() } },
+        });
+
+        if (coupon && coupon.active) {
+          const now = new Date();
+          const isValid =
+            (!coupon.starts_at || now >= coupon.starts_at) &&
+            (!coupon.expires_at || now <= coupon.expires_at) &&
+            (coupon.max_uses === null || coupon.used_count < coupon.max_uses) &&
+            (!coupon.product_id || !link.product_id || coupon.product_id === link.product_id) &&
+            (!coupon.min_value || baseValue >= Number(coupon.min_value));
+
+          if (isValid) {
+            let discountAmount: number;
+            if (coupon.discount_type === 'percentage') {
+              discountAmount = baseValue * (Number(coupon.discount_value) / 100);
+              if (coupon.max_discount && discountAmount > Number(coupon.max_discount)) {
+                discountAmount = Number(coupon.max_discount);
+              }
+            } else {
+              discountAmount = Number(coupon.discount_value);
+            }
+            discountAmount = Math.min(discountAmount, baseValue);
+            discountAmount = Math.round(discountAmount * 100) / 100;
+            baseValue = Math.round((baseValue - discountAmount) * 100) / 100;
+
+            // Incrementar uso do cupom
+            await prisma.coupon.update({
+              where: { id: coupon.id },
+              data: { used_count: { increment: 1 }, updated_at: new Date() },
+            });
+
+            appliedCoupon = {
+              id: coupon.id,
+              code: coupon.code,
+              discountType: coupon.discount_type,
+              discountValue: Number(coupon.discount_value),
+              discountAmount,
+            };
+
+            console.log(`[CHECKOUT] Cupom ${coupon.code} aplicado: -R$${discountAmount.toFixed(2)} (${originalValue} -> ${baseValue})`);
+          }
+        }
+      }
 
       // Somente PIX via SharkBanking
       if (body.billingType !== 'PIX') {
@@ -291,6 +342,11 @@ export async function paymentsRoutes(app: FastifyInstance) {
             customer_email: body.customerEmail,
             customer_document: body.customerCpfCnpj,
             customer_phone: body.customerPhone,
+            ...(appliedCoupon && {
+              coupon_code: appliedCoupon.code,
+              coupon_discount: appliedCoupon.discountAmount,
+              original_value: originalValue,
+            }),
           })),
         },
       });
