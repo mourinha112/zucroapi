@@ -66,6 +66,7 @@ model User {
   tickets                Ticket[]
   ticket_messages        TicketMessage[]
   coupons                Coupon[]
+  app_integrations       AppIntegration[]
 
   @@map("users")
 }
@@ -590,6 +591,25 @@ model TicketMessage {
   user   User?  @relation(fields: [user_id], references: [id])
 
   @@map("ticket_messages")
+}
+
+// ============================================
+// APP INTEGRATIONS (Aplicativos externos)
+// ============================================
+
+model AppIntegration {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String   @db.Uuid
+  app_id     String   @db.VarChar(50) // utmify, etc.
+  api_token  String   @db.VarChar(500)
+  active     Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, app_id])
+  @@map("app_integrations")
 }
 
 // ============================================

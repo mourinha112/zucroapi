@@ -8,6 +8,7 @@ import {
 } from '../providers/efibank/fee.calculator';
 import { notifySale } from '../modules/push/push.service';
 import { sendChargePostback } from '../utils/postback';
+import { sendUtmifyPostback } from '../modules/app-integrations/utmify.postback';
 
 // ============================================
 // FILAS COM REDIS (ou mock sem Redis)
@@ -216,6 +217,29 @@ async function processPixPayment(data: PixWebhookJob) {
     console.log(`[PIX] Notificação push enviada para ${payment.user_id}`);
   } catch (pushError) {
     console.error('[PIX] Erro ao enviar notificação push:', pushError);
+  }
+
+  // Enviar postback para UTMify (se configurado)
+  try {
+    const metadata = payment.metadata as any;
+    await sendUtmifyPostback({
+      paymentId: payment.id,
+      sellerId: payment.user_id,
+      value: grossValue,
+      netValue: feeCalc.netValue,
+      platformFee: feeCalc.platformFee,
+      status: 'paid',
+      customerName: metadata?.customer_name || pagador?.nome || 'Cliente',
+      customerEmail: metadata?.customer_email || '',
+      customerPhone: metadata?.customer_phone || undefined,
+      customerDocument: metadata?.customer_document || pagador?.cpf || undefined,
+      productName: payment.description || 'Produto ZucroPay',
+      productId: payment.payment_link_id || undefined,
+      createdAt: payment.created_at.toISOString().replace('T', ' ').substring(0, 19),
+      approvedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+    });
+  } catch (utmifyError) {
+    console.error('[PIX] Erro ao enviar postback UTMify:', utmifyError);
   }
 
   console.log(`[PIX] Pagamento processado: ${payment.id} - R$${feeCalc.netValue.toFixed(2)} líquido`);
