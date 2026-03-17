@@ -337,10 +337,11 @@ export async function paymentsRoutes(app: FastifyInstance) {
       return reply.status(404).send({ success: false, error: 'Link não encontrado' });
     }
 
-    await prisma.paymentLink.update({
+    // Incrementar cliques em background (não bloqueia a resposta)
+    prisma.paymentLink.update({
       where: { id: linkId },
       data: { clicks: { increment: 1 } },
-    });
+    }).catch(() => {});
 
     const customRates = await prisma.userCustomRate.findUnique({
       where: { user_id: link.user_id },
@@ -353,38 +354,46 @@ export async function paymentsRoutes(app: FastifyInstance) {
 
     let orderBumps: any[] = [];
     let subscriptionPlan = null;
+    let checkoutCustomization = null;
 
     if (link.product_id) {
-      orderBumps = await prisma.orderBump.findMany({
-        where: {
-          product_id: link.product_id,
-          show_in_checkout: true,
-          active: true,
-        },
-        include: {
-          bump_product: {
-            select: {
-              id: true,
-              name: true,
-              description: true,
-              price: true,
-              image_url: true,
-            },
-          },
-        },
-        orderBy: { position: 'asc' },
-      });
-
-      const product = link.product as any;
-      if (product?.is_subscription) {
-        subscriptionPlan = await prisma.subscriptionPlan.findFirst({
-          where: { 
-            user_id: link.user_id,
+      const [orderBumpsResult, subscriptionResult, customizationResult] = await Promise.all([
+        prisma.orderBump.findMany({
+          where: {
+            product_id: link.product_id,
+            show_in_checkout: true,
             active: true,
           },
-          orderBy: { created_at: 'asc' },
-        });
-      }
+          include: {
+            bump_product: {
+              select: {
+                id: true,
+                name: true,
+                description: true,
+                price: true,
+                image_url: true,
+              },
+            },
+          },
+          orderBy: { position: 'asc' },
+        }),
+        (link.product as any)?.is_subscription
+          ? prisma.subscriptionPlan.findFirst({
+              where: {
+                user_id: link.user_id,
+                active: true,
+              },
+              orderBy: { created_at: 'asc' },
+            })
+          : Promise.resolve(null),
+        prisma.checkoutCustomization.findUnique({
+          where: { product_id: link.product_id },
+        }),
+      ]);
+
+      orderBumps = orderBumpsResult;
+      subscriptionPlan = subscriptionResult;
+      checkoutCustomization = customizationResult;
     }
 
     const baseValue = Number(link.amount);
@@ -446,11 +455,34 @@ export async function paymentsRoutes(app: FastifyInstance) {
         card: {
           installments: installmentOptions,
           feePayer,
-          note: feePayer === 'buyer' 
-            ? 'Juros de parcelamento inclusos no valor das parcelas' 
+          note: feePayer === 'buyer'
+            ? 'Juros de parcelamento inclusos no valor das parcelas'
             : 'Valor à vista em todas as parcelas (vendedor absorve juros)',
         },
       },
+      customization: checkoutCustomization ? {
+        logoUrl: checkoutCustomization.logo_url,
+        bannerUrl: checkoutCustomization.banner_url,
+        backgroundUrl: checkoutCustomization.background_url,
+        primaryColor: checkoutCustomization.primary_color,
+        secondaryColor: checkoutCustomization.secondary_color,
+        backgroundColor: checkoutCustomization.background_color,
+        textColor: checkoutCustomization.text_color,
+        buttonColor: checkoutCustomization.button_color,
+        timerEnabled: checkoutCustomization.timer_enabled,
+        timerMinutes: checkoutCustomization.timer_minutes,
+        timerMessage: checkoutCustomization.timer_message,
+        timerColor: checkoutCustomization.timer_color,
+        customTitle: checkoutCustomization.custom_title,
+        customDescription: checkoutCustomization.custom_description,
+        customButtonText: checkoutCustomization.custom_button_text,
+        successMessage: checkoutCustomization.success_message,
+        showLogo: checkoutCustomization.show_logo,
+        showBanner: checkoutCustomization.show_banner,
+        showTimer: checkoutCustomization.show_timer,
+        showStock: checkoutCustomization.show_stock,
+        allowQuantity: checkoutCustomization.allow_quantity,
+      } : null,
     });
   });
 }
