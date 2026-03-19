@@ -1,15 +1,11 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../../config/database';
-import { createPixCharge } from '../../providers/efibank/efi.pix';
-import { createCardCharge, createPaymentLink as createEfiPaymentLink } from '../../providers/efibank/efi.card';
+import { createSharkPixCharge } from '../../providers/sharkbanking/shark.pix';
 import {
   getEffectiveRates,
   calculatePixFeeSellerPays,
-  calculateCardFeeSellerPays,
 } from '../../providers/efibank/fee.calculator';
-import { createAsaasCustomer } from '../../providers/asaas/asaas.pix';
-import { createAsaasBoletoCharge } from '../../providers/asaas/asaas.boleto';
 import crypto from 'crypto';
 import {
   authenticateApiKey,
@@ -167,18 +163,21 @@ export async function integrationsRoutes(app: FastifyInstance) {
       let payment: any;
       let chargeData: any = {};
 
-      // ========== PIX ==========
+      // ========== PIX via SharkBanking ==========
       if (body.billing_type === 'PIX') {
-        const pixResult = await createPixCharge({
+        const sharkResult = await createSharkPixCharge({
           value: body.value,
           description,
+          customerName: body.customer?.name || 'Cliente',
+          customerEmail: body.customer?.email || '',
           customerCpf: body.customer?.cpf_cnpj,
-          customerName: body.customer?.name,
+          customerPhone: body.customer?.phone,
+          externalRef: body.external_reference || `api_${user.id}_${Date.now()}`,
         });
 
-        if (!pixResult.success) {
+        if (!sharkResult.success || !sharkResult.pixCode) {
           return reply.status(400).send({
-            error: pixResult.error,
+            error: sharkResult.error || 'Erro ao gerar cobrança PIX',
             code: 'PIX_CREATION_FAILED',
           });
         }
@@ -194,15 +193,20 @@ export async function integrationsRoutes(app: FastifyInstance) {
             status: 'PENDING',
             description,
             due_date: body.due_date ? new Date(body.due_date) : new Date(),
-            efi_txid: pixResult.txid,
-            pix_qrcode: pixResult.pixQrCode,
-            pix_copy_paste: pixResult.pixCode,
-            asaas_payment_id: pixResult.txid,
+            efi_txid: sharkResult.transactionId,
+            pix_qrcode: sharkResult.pixQrCode,
+            pix_copy_paste: sharkResult.pixCode,
             metadata: {
               external_reference: body.external_reference,
               callback_url: body.callback_url,
               postback_url: body.postback_url || body.callback_url,
               platform_fee: feeCalc.platformFee,
+              payment_provider: 'sharkbanking',
+              shark_transaction_id: sharkResult.transactionId,
+              customer_name: body.customer?.name,
+              customer_email: body.customer?.email,
+              customer_document: body.customer?.cpf_cnpj,
+              customer_phone: body.customer?.phone,
               created_via: 'api',
             },
           },
@@ -217,156 +221,21 @@ export async function integrationsRoutes(app: FastifyInstance) {
           net_value: feeCalc.netValue,
           platform_fee: feeCalc.platformFee,
           pix: {
-            txid: pixResult.txid,
-            qr_code: pixResult.pixQrCode,
-            copy_paste: pixResult.pixCode,
+            txid: sharkResult.transactionId,
+            qr_code: sharkResult.pixQrCode,
+            copy_paste: sharkResult.pixCode,
             expires_at: new Date(Date.now() + 3600000).toISOString(),
           },
           created_at: payment.created_at,
         };
       }
 
-      // ========== CARTÃO (gera link) ==========
-      else if (body.billing_type === 'CREDIT_CARD') {
-        const chargeResult = await createCardCharge({
-          value: body.value,
-          description,
+      // ========== Cartão/Boleto não disponível ==========
+      else if (body.billing_type === 'CREDIT_CARD' || body.billing_type === 'BOLETO') {
+        return reply.status(400).send({
+          error: 'Apenas PIX está disponível no momento. Use billing_type: "PIX".',
+          code: 'METHOD_NOT_AVAILABLE',
         });
-
-        if (!chargeResult.success) {
-          return reply.status(400).send({
-            error: chargeResult.error,
-            code: 'CARD_CHARGE_CREATION_FAILED',
-          });
-        }
-
-        // Gerar link de pagamento
-        const linkResult = await createEfiPaymentLink(chargeResult.chargeId!);
-
-        const feeCalc = calculateCardFeeSellerPays(body.value, 1, rates);
-
-        payment = await prisma.payment.create({
-          data: {
-            user_id: user.id,
-            billing_type: 'CREDIT_CARD',
-            value: body.value,
-            net_value: feeCalc.netValue,
-            status: 'PENDING',
-            description,
-            due_date: body.due_date ? new Date(body.due_date) : new Date(),
-            efi_charge_id: chargeResult.chargeId!.toString(),
-            asaas_payment_id: chargeResult.chargeId!.toString(),
-            metadata: {
-              external_reference: body.external_reference,
-              callback_url: body.callback_url,
-              postback_url: body.postback_url || body.callback_url,
-              platform_fee: feeCalc.platformFee,
-              payment_url: linkResult.success ? linkResult.paymentUrl : null,
-              created_via: 'api',
-            },
-          },
-        });
-
-        chargeData = {
-          id: payment.id,
-          object: 'charge',
-          billing_type: 'CREDIT_CARD',
-          status: 'PENDING',
-          value: body.value,
-          net_value: feeCalc.netValue,
-          platform_fee: feeCalc.platformFee,
-          payment_url: linkResult.success ? linkResult.paymentUrl : null,
-          charge_id: chargeResult.chargeId,
-          created_at: payment.created_at,
-        };
-      }
-
-      // ========== BOLETO (apenas Asaas) ==========
-      else if (body.billing_type === 'BOLETO') {
-        const paymentProvider = (user as any).payment_provider || 'efibank';
-        if (paymentProvider !== 'asaas') {
-          return reply.status(400).send({
-            error: 'Boleto disponível apenas para contas com Asaas. Configure o provedor Asaas ou use PIX/Cartão.',
-            code: 'BOLETO_NOT_AVAILABLE',
-          });
-        }
-        if (!body.customer?.cpf_cnpj || !body.customer?.name) {
-          return reply.status(400).send({
-            error: 'Para boleto, customer.name e customer.cpf_cnpj são obrigatórios.',
-            code: 'CUSTOMER_REQUIRED',
-          });
-        }
-
-        const customerResult = await createAsaasCustomer({
-          name: body.customer.name,
-          cpfCnpj: body.customer.cpf_cnpj.replace(/\D/g, ''),
-          email: body.customer.email,
-          phone: body.customer.phone,
-        });
-
-        if (!customerResult.success || !customerResult.customerId) {
-          return reply.status(400).send({
-            error: customerResult.error || 'Erro ao registrar cliente',
-            code: 'CUSTOMER_CREATION_FAILED',
-          });
-        }
-
-        const boletoResult = await createAsaasBoletoCharge({
-          value: body.value,
-          description,
-          customerAsaasId: customerResult.customerId,
-          dueDate: body.due_date,
-        });
-
-        if (!boletoResult.success) {
-          return reply.status(400).send({
-            error: boletoResult.error || 'Erro ao gerar boleto',
-            code: 'BOLETO_CREATION_FAILED',
-          });
-        }
-
-        const feeCalc = calculatePixFeeSellerPays(body.value, rates);
-        const dueDateBoleto = boletoResult.dueDate ? new Date(boletoResult.dueDate) : new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
-
-        payment = await prisma.payment.create({
-          data: {
-            user_id: user.id,
-            billing_type: 'BOLETO',
-            value: body.value,
-            net_value: feeCalc.netValue,
-            status: 'PENDING',
-            description,
-            due_date: dueDateBoleto,
-            asaas_payment_id: boletoResult.paymentId,
-            metadata: {
-              external_reference: body.external_reference,
-              callback_url: body.callback_url,
-              postback_url: body.postback_url || body.callback_url,
-              platform_fee: feeCalc.platformFee,
-              reserve_amount: feeCalc.reserveAmount,
-              customer_name: body.customer?.name,
-              customer_email: body.customer?.email,
-              customer_document: body.customer?.cpf_cnpj,
-              customer_phone: body.customer?.phone,
-              created_via: 'api',
-            },
-          },
-        });
-
-        chargeData = {
-          id: payment.id,
-          object: 'charge',
-          billing_type: 'BOLETO',
-          status: 'PENDING',
-          value: body.value,
-          net_value: feeCalc.netValue,
-          platform_fee: feeCalc.platformFee,
-          charge_id: boletoResult.paymentId,
-          barcode: boletoResult.barcode,
-          boleto_url: boletoResult.boletoUrl,
-          due_date: boletoResult.dueDate,
-          created_at: payment.created_at,
-        };
       }
 
       // ========== UNDEFINED (gera link flexível) ==========
