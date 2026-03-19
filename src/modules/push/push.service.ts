@@ -120,8 +120,8 @@ export async function notifySale(
   }).format(amount);
 
   await sendPushToUser(userId, {
-    title: '💰 Nova Venda!',
-    body: `Você recebeu ${formattedAmount} de ${customerName}`,
+    title: '💰 Nova Venda Realizada!',
+    body: `Valor: ${formattedAmount}`,
     tag: `sale-${paymentId}`,
     data: {
       type: 'sale',
