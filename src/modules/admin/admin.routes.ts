@@ -28,16 +28,21 @@ export async function adminRoutes(app: FastifyInstance) {
       let chargebackCount = 0;
 
       try {
-        totalPayments = await prisma.payment.count({ where: { status: 'RECEIVED' } });
-        
-        // GMV - Total movimentado (todas as vendas pagas)
-        const salesAgg = await prisma.payment.aggregate({
-          where: { status: 'RECEIVED' },
-          _sum: { value: true, net_value: true }
-        });
-        gmv = Number(salesAgg._sum?.value || 0);
-        // Lucro = valor bruto - valor líquido (que vai pro seller)
-        const netTotal = Number(salesAgg._sum?.net_value || 0);
+        // Filtrar apenas pagamentos SharkBanking (metadata contém payment_provider: sharkbanking)
+        const sharkPayments = await prisma.$queryRaw`
+          SELECT
+            COUNT(*) as count,
+            COALESCE(SUM(value), 0) as total_value,
+            COALESCE(SUM(net_value), 0) as total_net
+          FROM payments
+          WHERE status = 'RECEIVED'
+            AND metadata::text LIKE '%sharkbanking%'
+        ` as any[];
+
+        const row = sharkPayments[0];
+        totalPayments = Number(row?.count || 0);
+        gmv = Number(row?.total_value || 0);
+        const netTotal = Number(row?.total_net || 0);
         totalFees = gmv - netTotal;
         totalSales = gmv;
       } catch (e) {
@@ -70,20 +75,22 @@ export async function adminRoutes(app: FastifyInstance) {
       }
 
       // Dados para gráfico de vendas dos últimos 7 dias
+      // Gráfico de vendas dos últimos 7 dias (apenas SharkBanking)
       let salesChartData: any[] = [];
       try {
         const last7Days = await prisma.$queryRaw`
-          SELECT 
+          SELECT
             DATE(created_at) as date,
             COUNT(*) as count,
             COALESCE(SUM(value), 0) as total
-          FROM payments 
-          WHERE status = 'RECEIVED' 
+          FROM payments
+          WHERE status = 'RECEIVED'
+            AND metadata::text LIKE '%sharkbanking%'
             AND created_at >= NOW() - INTERVAL '7 days'
           GROUP BY DATE(created_at)
           ORDER BY date ASC
         ` as any[];
-        
+
         salesChartData = last7Days.map((d: any) => ({
           date: new Date(d.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
           vendas: Number(d.count),
@@ -93,19 +100,20 @@ export async function adminRoutes(app: FastifyInstance) {
         console.log('Erro ao buscar dados do gráfico:', e);
       }
 
-      // Dados para gráfico de métodos de pagamento
+      // Métodos de pagamento (apenas SharkBanking)
       let paymentMethodData: any[] = [];
       try {
         const methodStats = await prisma.$queryRaw`
-          SELECT 
+          SELECT
             billing_type,
             COUNT(*) as count,
             COALESCE(SUM(value), 0) as total
-          FROM payments 
+          FROM payments
           WHERE status = 'RECEIVED'
+            AND metadata::text LIKE '%sharkbanking%'
           GROUP BY billing_type
         ` as any[];
-        
+
         paymentMethodData = methodStats.map((m: any) => ({
           name: m.billing_type || 'Outro',
           value: Number(m.count),
