@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import { authService } from './auth.service';
 import { authenticate, authRateLimit } from '../../middlewares';
 import { prisma } from '../../config/database';
+import { sendLoginCode } from './email.service';
 
 // Schemas de validação
 const loginSchema = z.object({
@@ -26,14 +27,91 @@ const changePasswordSchema = z.object({
 });
 
 export async function authRoutes(app: FastifyInstance) {
-  // Login de usuário (com rate limit)
+  // Login de usuário - Etapa 1: valida credenciais e envia código por email
   app.post('/login', {
     preHandler: [authRateLimit],
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const body = loginSchema.parse(request.body);
       const user = await authService.loginUser(body.email, body.password);
-      
+
+      // Gerar código de 6 dígitos
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutos
+
+      // Invalidar códigos anteriores do usuário
+      await prisma.loginCode.updateMany({
+        where: { user_id: user.id, used: false },
+        data: { used: true },
+      });
+
+      // Salvar novo código
+      await prisma.loginCode.create({
+        data: {
+          user_id: user.id,
+          code,
+          expires_at: expiresAt,
+        },
+      });
+
+      // Enviar email
+      const sent = await sendLoginCode(user.email, code, user.name);
+      if (!sent) {
+        console.error(`[Auth] Falha ao enviar email para ${user.email}`);
+      }
+
+      return reply.send({
+        success: true,
+        requireCode: true,
+        message: 'Código de verificação enviado para seu email',
+        userId: user.id,
+      });
+    } catch (error: any) {
+      const statusCode = error.statusCode || 400;
+      return reply.status(statusCode).send({
+        success: false,
+        error: error.message || 'Erro ao fazer login',
+      });
+    }
+  });
+
+  // Login de usuário - Etapa 2: verificar código e retornar token
+  app.post('/verify-code', {
+    preHandler: [authRateLimit],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const schema = z.object({
+        userId: z.string().uuid(),
+        code: z.string().length(6),
+      });
+      const body = schema.parse(request.body);
+
+      // Buscar código válido
+      const loginCode = await prisma.loginCode.findFirst({
+        where: {
+          user_id: body.userId,
+          code: body.code,
+          used: false,
+          expires_at: { gte: new Date() },
+        },
+      });
+
+      if (!loginCode) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Código inválido ou expirado',
+        });
+      }
+
+      // Marcar como usado
+      await prisma.loginCode.update({
+        where: { id: loginCode.id },
+        data: { used: true },
+      });
+
+      // Buscar usuário
+      const user = await authService.getUserById(body.userId);
+
       // Gerar JWT
       const token = app.jwt.sign({
         id: user.id,
@@ -47,11 +125,51 @@ export async function authRoutes(app: FastifyInstance) {
         user,
       });
     } catch (error: any) {
-      const statusCode = error.statusCode || 400;
-      return reply.status(statusCode).send({
+      return reply.status(400).send({
         success: false,
-        error: error.message || 'Erro ao fazer login',
+        error: error.message || 'Código inválido',
       });
+    }
+  });
+
+  // Reenviar código
+  app.post('/resend-code', {
+    preHandler: [authRateLimit],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const schema = z.object({ userId: z.string().uuid() });
+      const body = schema.parse(request.body);
+
+      const user = await prisma.user.findUnique({
+        where: { id: body.userId },
+        select: { id: true, email: true, name: true },
+      });
+
+      if (!user) {
+        return reply.status(404).send({ success: false, error: 'Usuário não encontrado' });
+      }
+
+      // Invalidar anteriores
+      await prisma.loginCode.updateMany({
+        where: { user_id: user.id, used: false },
+        data: { used: true },
+      });
+
+      // Novo código
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      await prisma.loginCode.create({
+        data: {
+          user_id: user.id,
+          code,
+          expires_at: new Date(Date.now() + 5 * 60 * 1000),
+        },
+      });
+
+      await sendLoginCode(user.email, code, user.name);
+
+      return reply.send({ success: true, message: 'Novo código enviado' });
+    } catch (error: any) {
+      return reply.status(400).send({ success: false, error: error.message });
     }
   });
 

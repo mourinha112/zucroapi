@@ -34,6 +34,9 @@ export const env = {
   SHARK_WITHDRAW_KEY: process.env.SHARK_WITHDRAW_KEY || '',
   SHARK_WEBHOOK_URL: process.env.SHARK_WEBHOOK_URL || '',
   
+  // Resend (Email)
+  RESEND_API_KEY: process.env.RESEND_API_KEY || '',
+
   // Push Notifications
   VAPID_PUBLIC_KEY: process.env.VAPID_PUBLIC_KEY || '',
   VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY || '',

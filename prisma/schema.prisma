@@ -67,6 +67,7 @@ model User {
   ticket_messages        TicketMessage[]
   coupons                Coupon[]
   app_integrations       AppIntegration[]
+  login_codes            LoginCode[]
 
   @@map("users")
 }
@@ -591,6 +592,23 @@ model TicketMessage {
   user   User?  @relation(fields: [user_id], references: [id])
 
   @@map("ticket_messages")
+}
+
+// ============================================
+// LOGIN CODES (2FA por email)
+// ============================================
+
+model LoginCode {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String   @db.Uuid
+  code       String   @db.VarChar(6)
+  expires_at DateTime @db.Timestamptz
+  used       Boolean  @default(false)
+  created_at DateTime @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("login_codes")
 }
 
 // ============================================
