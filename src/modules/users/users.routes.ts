@@ -78,15 +78,21 @@ export async function usersRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const decoded = request.user as { id: string };
 
+    // Buscar pagamentos dos últimos 90 dias para cálculos corretos de faturamento
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
     const [user, recentPayments, recentTransactions] = await Promise.all([
       prisma.user.findUnique({
         where: { id: decoded.id },
         include: { custom_rates: true },
       }),
       prisma.payment.findMany({
-        where: { user_id: decoded.id },
+        where: {
+          user_id: decoded.id,
+          created_at: { gte: ninetyDaysAgo },
+        },
         orderBy: { created_at: 'desc' },
-        take: 10,
       }),
       prisma.transaction.findMany({
         where: { user_id: decoded.id },

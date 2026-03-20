@@ -28,7 +28,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
         ...(query.status && { status: query.status }),
       },
       orderBy: { created_at: 'desc' },
-      take: parseInt(query.limit || '50'),
+      take: Math.min(parseInt(query.limit || '500'), 1000),
       skip: parseInt(query.offset || '0'),
     });
 
