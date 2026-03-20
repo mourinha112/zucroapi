@@ -31,8 +31,9 @@ export async function sendLoginCode(email: string, code: string, userName: strin
             </p>
           </div>
           <div style="padding: 20px 32px; text-align: center; border-radius: 0 0 16px 16px; background: #f9fafb; border: 1px solid #e5e7eb; border-top: none;">
+            <img src="https://dashboard.appzucropay.com/logotipo.png" alt="ZucroPay" style="height: 28px; margin-bottom: 8px;" />
             <p style="color: #9ca3af; font-size: 11px; margin: 0;">
-              &copy; 2025 ZucroPay. Todos os direitos reservados.
+              &copy; 2026 ZucroPay. Todos os direitos reservados.
             </p>
           </div>
         </div>
