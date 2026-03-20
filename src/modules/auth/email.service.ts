@@ -11,7 +11,7 @@ export async function sendLoginCode(email: string, code: string, userName: strin
       html: `
         <div style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 0;">
           <div style="background: linear-gradient(135deg, #5818C8 0%, #380F7F 100%); padding: 40px 32px; text-align: center; border-radius: 16px 16px 0 0;">
-            <img src="https://dashboard.appzucropay.com/logotipo-white.png" alt="ZucroPay" style="height: 40px; margin-bottom: 16px;" />
+            <img src="https://dashboard.appzucropay.com/logotipo.webp" alt="ZucroPay" style="height: 40px; margin-bottom: 16px;" />
             <h1 style="color: #ffffff; font-size: 22px; font-weight: 700; margin: 0;">Código de Verificação</h1>
           </div>
           <div style="background: #ffffff; padding: 40px 32px; border: 1px solid #e5e7eb; border-top: none;">
