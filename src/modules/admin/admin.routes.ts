@@ -41,14 +41,13 @@ export async function adminRoutes(app: FastifyInstance) {
         totalPayments = Number(row?.count || 0);
         gmv = Number(row?.total_value || 0);
 
-        // Lucro = faturamento total - soma dos saldos dos sellers
-        const sellerBalances = await prisma.user.aggregate({ _sum: { balance: true } });
-        const totalSellerBalance = Number(sellerBalances._sum.balance || 0);
-        const totalWithdrawnForFees = await prisma.$queryRaw`
-          SELECT COALESCE(SUM(amount), 0) as total FROM withdrawals WHERE status = 'completed'
+        // Lucro = soma das taxas cobradas dos sellers (value - net_value dos payments)
+        const feesFromPayments = await prisma.$queryRaw`
+          SELECT COALESCE(SUM(value - net_value), 0) as total_fees
+          FROM payments
+          WHERE status = 'RECEIVED'
         ` as any[];
-        const withdrawn = Number(totalWithdrawnForFees[0]?.total || 0);
-        totalFees = gmv - totalSellerBalance - withdrawn;
+        totalFees = Number(feesFromPayments[0]?.total_fees || 0);
         totalSales = gmv;
       } catch (e) {
         console.log('Erro ao buscar payments:', e);
