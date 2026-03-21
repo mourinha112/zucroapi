@@ -28,21 +28,27 @@ export async function adminRoutes(app: FastifyInstance) {
       let chargebackCount = 0;
 
       try {
-        // Todos os pagamentos recebidos
-        const allPayments = await prisma.$queryRaw`
+        // Faturamento total baseado nos depósitos (transactions)
+        const depositStats = await prisma.$queryRaw`
           SELECT
             COUNT(*) as count,
-            COALESCE(SUM(value), 0) as total_value,
-            COALESCE(SUM(net_value), 0) as total_net
-          FROM payments
-          WHERE status = 'RECEIVED'
+            COALESCE(SUM(amount), 0) as total_value
+          FROM transactions
+          WHERE type = 'deposit'
         ` as any[];
 
-        const row = allPayments[0];
+        const row = depositStats[0];
         totalPayments = Number(row?.count || 0);
         gmv = Number(row?.total_value || 0);
-        const netTotal = Number(row?.total_net || 0);
-        totalFees = gmv - netTotal;
+
+        // Lucro = faturamento total - soma dos saldos dos sellers
+        const sellerBalances = await prisma.user.aggregate({ _sum: { balance: true } });
+        const totalSellerBalance = Number(sellerBalances._sum.balance || 0);
+        const totalWithdrawnForFees = await prisma.$queryRaw`
+          SELECT COALESCE(SUM(amount), 0) as total FROM withdrawals WHERE status = 'completed'
+        ` as any[];
+        const withdrawn = Number(totalWithdrawnForFees[0]?.total || 0);
+        totalFees = gmv - totalSellerBalance - withdrawn;
         totalSales = gmv;
       } catch (e) {
         console.log('Erro ao buscar payments:', e);
@@ -80,9 +86,9 @@ export async function adminRoutes(app: FastifyInstance) {
           SELECT
             DATE(created_at) as date,
             COUNT(*) as count,
-            COALESCE(SUM(value), 0) as total
-          FROM payments
-          WHERE status = 'RECEIVED'
+            COALESCE(SUM(amount), 0) as total
+          FROM transactions
+          WHERE type = 'deposit'
             AND created_at >= NOW() - INTERVAL '7 days'
           GROUP BY DATE(created_at)
           ORDER BY date ASC
