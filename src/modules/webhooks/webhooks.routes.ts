@@ -461,13 +461,27 @@ export async function webhooksRoutes(app: FastifyInstance) {
     }
 
     if (newStatus !== payment.status) {
-      await prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          status: newStatus,
-          payment_date: newStatus === 'RECEIVED' ? new Date() : payment.payment_date,
-        },
-      });
+      // UPDATE atômico: só atualiza se status ainda não mudou (previne race condition)
+      if (newStatus === 'RECEIVED') {
+        const updated = await prisma.$executeRaw`
+          UPDATE payments SET status = 'RECEIVED', payment_date = NOW(), updated_at = NOW()
+          WHERE id = ${payment.id}::uuid AND status != 'RECEIVED'
+        `;
+
+        // $executeRaw retorna o número de linhas afetadas
+        if (updated === 0) {
+          console.log(`[WEBHOOK] ⚠️ Payment ${payment.id} já foi processado por outro webhook, ignorando`);
+          return reply.send({ received: true });
+        }
+      } else {
+        await prisma.payment.update({
+          where: { id: payment.id },
+          data: {
+            status: newStatus,
+            payment_date: newStatus === 'RECEIVED' ? new Date() : payment.payment_date,
+          },
+        });
+      }
 
       console.log(`[WEBHOOK] SharkBanking ${sharkTransactionId} atualizado: ${newStatus}`);
 
@@ -481,21 +495,8 @@ export async function webhooksRoutes(app: FastifyInstance) {
       };
       sendChargePostback(payment, sharkEventMap[newStatus] || `charge.${newStatus.toLowerCase()}`);
 
-      // Se foi pago, processar saldo (com proteção contra duplicação)
+      // Se foi pago, processar saldo
       if (newStatus === 'RECEIVED') {
-        // Verificar se já existe depósito para este pagamento (evita duplicação por webhook duplicado)
-        const existingDeposit = await prisma.transaction.findFirst({
-          where: {
-            user_id: payment.user_id,
-            type: 'deposit',
-            metadata: { path: ['payment_id'], equals: payment.id },
-          },
-        });
-
-        if (existingDeposit) {
-          console.log(`[WEBHOOK] ⚠️ Depósito já existe para payment ${payment.id}, ignorando duplicata`);
-          return reply.send({ received: true });
-        }
         const grossValue = Number(payment.value);
 
         // Buscar taxas do vendedor
