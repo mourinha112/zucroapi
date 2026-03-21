@@ -28,18 +28,17 @@ export async function adminRoutes(app: FastifyInstance) {
       let chargebackCount = 0;
 
       try {
-        // Filtrar apenas pagamentos SharkBanking (metadata contém payment_provider: sharkbanking)
-        const sharkPayments = await prisma.$queryRaw`
+        // Todos os pagamentos recebidos
+        const allPayments = await prisma.$queryRaw`
           SELECT
             COUNT(*) as count,
             COALESCE(SUM(value), 0) as total_value,
             COALESCE(SUM(net_value), 0) as total_net
           FROM payments
           WHERE status = 'RECEIVED'
-            AND metadata::text LIKE '%sharkbanking%'
         ` as any[];
 
-        const row = sharkPayments[0];
+        const row = allPayments[0];
         totalPayments = Number(row?.count || 0);
         gmv = Number(row?.total_value || 0);
         const netTotal = Number(row?.total_net || 0);
@@ -74,8 +73,7 @@ export async function adminRoutes(app: FastifyInstance) {
         console.log('Erro ao buscar verifications:', e);
       }
 
-      // Dados para gráfico de vendas dos últimos 7 dias
-      // Gráfico de vendas dos últimos 7 dias (apenas SharkBanking)
+      // Gráfico de vendas dos últimos 7 dias
       let salesChartData: any[] = [];
       try {
         const last7Days = await prisma.$queryRaw`
@@ -85,7 +83,6 @@ export async function adminRoutes(app: FastifyInstance) {
             COALESCE(SUM(value), 0) as total
           FROM payments
           WHERE status = 'RECEIVED'
-            AND metadata::text LIKE '%sharkbanking%'
             AND created_at >= NOW() - INTERVAL '7 days'
           GROUP BY DATE(created_at)
           ORDER BY date ASC
@@ -100,7 +97,7 @@ export async function adminRoutes(app: FastifyInstance) {
         console.log('Erro ao buscar dados do gráfico:', e);
       }
 
-      // Métodos de pagamento (apenas SharkBanking)
+      // Métodos de pagamento
       let paymentMethodData: any[] = [];
       try {
         const methodStats = await prisma.$queryRaw`
@@ -110,7 +107,6 @@ export async function adminRoutes(app: FastifyInstance) {
             COALESCE(SUM(value), 0) as total
           FROM payments
           WHERE status = 'RECEIVED'
-            AND metadata::text LIKE '%sharkbanking%'
           GROUP BY billing_type
         ` as any[];
 
