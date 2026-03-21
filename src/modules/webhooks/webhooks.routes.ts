@@ -454,6 +454,12 @@ export async function webhooksRoutes(app: FastifyInstance) {
       newStatus = 'CANCELLED';
     }
 
+    // Se já está RECEIVED, ignorar (proteção contra reprocessamento)
+    if (payment.status === 'RECEIVED') {
+      console.log(`[WEBHOOK] SharkBanking ${sharkTransactionId} já está RECEIVED, ignorando`);
+      return reply.send({ received: true });
+    }
+
     if (newStatus !== payment.status) {
       await prisma.payment.update({
         where: { id: payment.id },
@@ -475,8 +481,21 @@ export async function webhooksRoutes(app: FastifyInstance) {
       };
       sendChargePostback(payment, sharkEventMap[newStatus] || `charge.${newStatus.toLowerCase()}`);
 
-      // Se foi pago, processar saldo
+      // Se foi pago, processar saldo (com proteção contra duplicação)
       if (newStatus === 'RECEIVED') {
+        // Verificar se já existe depósito para este pagamento (evita duplicação por webhook duplicado)
+        const existingDeposit = await prisma.transaction.findFirst({
+          where: {
+            user_id: payment.user_id,
+            type: 'deposit',
+            metadata: { path: ['payment_id'], equals: payment.id },
+          },
+        });
+
+        if (existingDeposit) {
+          console.log(`[WEBHOOK] ⚠️ Depósito já existe para payment ${payment.id}, ignorando duplicata`);
+          return reply.send({ received: true });
+        }
         const grossValue = Number(payment.value);
 
         // Buscar taxas do vendedor
