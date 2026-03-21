@@ -28,26 +28,20 @@ export async function adminRoutes(app: FastifyInstance) {
       let chargebackCount = 0;
 
       try {
-        // Faturamento total baseado nos depósitos (transactions)
-        const depositStats = await prisma.$queryRaw`
+        // Faturamento total baseado nos pagamentos recebidos
+        const paymentStats = await prisma.$queryRaw`
           SELECT
             COUNT(*) as count,
-            COALESCE(SUM(amount), 0) as total_value
-          FROM transactions
-          WHERE type = 'deposit'
-        ` as any[];
-
-        const row = depositStats[0];
-        totalPayments = Number(row?.count || 0);
-        gmv = Number(row?.total_value || 0);
-
-        // Lucro = soma das taxas cobradas dos sellers (value - net_value dos payments)
-        const feesFromPayments = await prisma.$queryRaw`
-          SELECT COALESCE(SUM(value - net_value), 0) as total_fees
+            COALESCE(SUM(value), 0) as total_value,
+            COALESCE(SUM(value - net_value), 0) as total_fees
           FROM payments
           WHERE status = 'RECEIVED'
         ` as any[];
-        totalFees = Number(feesFromPayments[0]?.total_fees || 0);
+
+        const row = paymentStats[0];
+        totalPayments = Number(row?.count || 0);
+        gmv = Number(row?.total_value || 0);
+        totalFees = Number(row?.total_fees || 0);
         totalSales = gmv;
       } catch (e) {
         console.log('Erro ao buscar payments:', e);
@@ -85,9 +79,9 @@ export async function adminRoutes(app: FastifyInstance) {
           SELECT
             DATE(created_at) as date,
             COUNT(*) as count,
-            COALESCE(SUM(amount), 0) as total
-          FROM transactions
-          WHERE type = 'deposit'
+            COALESCE(SUM(value), 0) as total
+          FROM payments
+          WHERE status = 'RECEIVED'
             AND created_at >= NOW() - INTERVAL '7 days'
           GROUP BY DATE(created_at)
           ORDER BY date ASC
