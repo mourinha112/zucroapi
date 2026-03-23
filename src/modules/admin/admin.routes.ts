@@ -356,28 +356,40 @@ export async function adminRoutes(app: FastifyInstance) {
       });
     }
 
-    // Se aprovado, enviar PIX automaticamente via SharkBanking
+    // Se aprovado, enviar PIX automaticamente via provider do seller
     if (body.status === 'approved' && withdrawal.status === 'pending') {
       try {
         const seller = await prisma.user.findUnique({
           where: { id: withdrawal.user_id },
-          select: { name: true },
+          select: { name: true, payment_provider: true },
         });
 
-        console.log(`[SAQUE] Processando saque automático via SharkBanking ID: ${id}`);
+        const providerName = seller?.payment_provider || 'sharkbanking';
+        console.log(`[SAQUE] Processando saque automático via ${providerName} ID: ${id}`);
         console.log(`[SAQUE] Valor: R$ ${withdrawal.amount}, Chave: ${withdrawal.pix_key}`);
 
-        const { createSharkPixTransfer } = await import('../../providers/sharkbanking/shark.pix');
-        const pixResult = await createSharkPixTransfer({
-          value: Number(withdrawal.amount),
-          pixKey: withdrawal.pix_key!,
-          pixKeyType: withdrawal.pix_key_type || 'cpf',
-          description: `Saque ZucroPay - ${seller?.name || 'Usuario'}`,
-        });
+        let pixResult: { success: boolean; error?: string; debug?: any; endToEndId?: string; transferId?: string; status?: string };
+
+        if (providerName === 'enki') {
+          const { createEnkiPixTransfer } = await import('../../providers/enki/enki.pix');
+          pixResult = await createEnkiPixTransfer({
+            value: Number(withdrawal.amount),
+            pixKey: withdrawal.pix_key!,
+            pixKeyType: withdrawal.pix_key_type || 'cpf',
+          });
+        } else {
+          const { createSharkPixTransfer } = await import('../../providers/sharkbanking/shark.pix');
+          pixResult = await createSharkPixTransfer({
+            value: Number(withdrawal.amount),
+            pixKey: withdrawal.pix_key!,
+            pixKeyType: withdrawal.pix_key_type || 'cpf',
+            description: `Saque ZucroPay - ${seller?.name || 'Usuario'}`,
+          });
+        }
 
         if (!pixResult.success) {
-          console.error(`[SAQUE] Erro ao enviar PIX:`, pixResult.error);
-          
+          console.error(`[SAQUE] Erro ao enviar PIX via ${providerName}:`, pixResult.error);
+
           // Log do erro
           await prisma.adminLog.create({
             data: {
@@ -385,18 +397,18 @@ export async function adminRoutes(app: FastifyInstance) {
               action: 'withdrawal_pix_error',
               target_type: 'withdrawal',
               target_id: id,
-              details: { error: pixResult.error, debug: pixResult.debug },
+              details: { error: pixResult.error, debug: pixResult.debug, provider: providerName },
             },
           });
 
-          return reply.status(400).send({ 
-            success: false, 
+          return reply.status(400).send({
+            success: false,
             error: `Erro ao enviar PIX: ${pixResult.error}`,
             debug: pixResult.debug,
           });
         }
 
-        console.log(`[SAQUE] PIX enviado com sucesso! E2E: ${pixResult.endToEndId}`);
+        console.log(`[SAQUE] PIX enviado com sucesso via ${providerName}! E2E: ${pixResult.endToEndId}`);
 
         // Atualizar saque como completed (já foi pago)
         const updated = await prisma.withdrawal.update({
@@ -406,8 +418,7 @@ export async function adminRoutes(app: FastifyInstance) {
             reviewed_by: currentUser.id,
             reviewed_at: new Date(),
             completed_at: new Date(),
-            // Salvar dados da transação PIX no campo admin_notes
-            admin_notes: `PIX enviado automaticamente via SharkBanking. E2E: ${pixResult.endToEndId || pixResult.transferId}`,
+            admin_notes: `PIX enviado automaticamente via ${providerName}. E2E: ${pixResult.endToEndId || pixResult.transferId}`,
           },
         });
 
@@ -422,13 +433,14 @@ export async function adminRoutes(app: FastifyInstance) {
               endToEndId: pixResult.endToEndId,
               transferId: pixResult.transferId,
               status: pixResult.status,
+              provider: providerName,
             },
           },
         });
 
-        return reply.send({ 
-          success: true, 
-          message: 'Saque aprovado e PIX enviado automaticamente!',
+        return reply.send({
+          success: true,
+          message: `Saque aprovado e PIX enviado automaticamente via ${providerName}!`,
           withdrawal: updated,
           pix: {
             endToEndId: pixResult.endToEndId,
@@ -438,9 +450,9 @@ export async function adminRoutes(app: FastifyInstance) {
 
       } catch (error: any) {
         console.error(`[SAQUE] Erro crítico ao processar saque:`, error);
-        
-        return reply.status(500).send({ 
-          success: false, 
+
+        return reply.status(500).send({
+          success: false,
           error: `Erro ao processar saque: ${error.message}`,
         });
       }
@@ -547,12 +559,12 @@ export async function adminRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const currentUser = request.currentUser!;
     const { id } = request.params as { id: string };
-    const body = request.body as { provider: 'efibank' | 'asaas' };
+    const body = request.body as { provider: 'efibank' | 'asaas' | 'enki' };
 
-    if (!['efibank', 'asaas'].includes(body.provider)) {
+    if (!['efibank', 'asaas', 'enki'].includes(body.provider)) {
       return reply.status(400).send({
         success: false,
-        error: 'Provedor inválido. Use "efibank" ou "asaas".',
+        error: 'Provedor inválido. Use "efibank", "asaas" ou "enki".',
       });
     }
 

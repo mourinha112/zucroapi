@@ -384,6 +384,24 @@ export const calculateInstallmentValue = (
   };
 };
 
+/**
+ * Aplica taxas específicas por adquirente.
+ * Enki: 4.99% + R$2.50 fixo por transação PIX (descontado do seller).
+ */
+export const applyProviderRateOverrides = (
+  rates: SellerRates,
+  provider: string
+): SellerRates => {
+  if (provider === 'enki') {
+    return {
+      ...rates,
+      pix_rate: 4.99,
+      fixed_fee: 2.50,
+    };
+  }
+  return rates;
+};
+
 // Calcular data de liberação da reserva
 export const calculateReleaseDate = (days?: number): Date => {
   const releaseDate = new Date();

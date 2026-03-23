@@ -2,10 +2,12 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../../config/database';
 import { createSharkPixCharge } from '../../providers/sharkbanking/shark.pix';
+import { createEnkiPixCharge } from '../../providers/enki/enki.pix';
 import {
   getEffectiveRates,
   calculatePixFeeSellerPays,
   calculateReleaseDate,
+  applyProviderRateOverrides,
 } from '../../providers/efibank/fee.calculator';
 import { 
   authenticate, 
@@ -279,7 +281,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
         }
       }
 
-      // Somente PIX via SharkBanking
+      // Somente PIX
       if (body.billingType !== 'PIX') {
         return reply.status(400).send({
           success: false,
@@ -288,25 +290,41 @@ export async function paymentsRoutes(app: FastifyInstance) {
         });
       }
 
-      console.log(`[CHECKOUT PIX] SharkBanking - vendedor: ${link.user.name} (${link.user_id})`);
+      // Determinar provider do seller (default: sharkbanking)
+      const sellerProvider = (link.user as any)?.payment_provider || 'sharkbanking';
+      console.log(`[CHECKOUT PIX] ${sellerProvider} - vendedor: ${link.user.name} (${link.user_id})`);
 
-      const sharkResult = await createSharkPixCharge({
-        value: baseValue,
-        description,
-        customerName: body.customerName,
-        customerEmail: body.customerEmail,
-        customerCpf: body.customerCpfCnpj,
-        customerPhone: body.customerPhone,
-        externalRef: `zp_${link.id}_${Date.now()}`,
-      });
+      let chargeResult: { success: boolean; transactionId?: string; pixCode?: string; pixQrCode?: string; error?: string; debug?: any };
 
-      if (!sharkResult.success) {
-        const errorMsg = sharkResult.error || 'Erro ao gerar cobrança PIX';
-        console.error(`[CHECKOUT PIX] SharkBanking falhou: ${errorMsg}`, sharkResult.debug);
+      if (sellerProvider === 'enki') {
+        chargeResult = await createEnkiPixCharge({
+          value: baseValue,
+          description,
+          customerName: body.customerName,
+          customerEmail: body.customerEmail,
+          customerCpf: body.customerCpfCnpj,
+          customerPhone: body.customerPhone,
+          externalRef: `zp_${link.id}_${Date.now()}`,
+        });
+      } else {
+        chargeResult = await createSharkPixCharge({
+          value: baseValue,
+          description,
+          customerName: body.customerName,
+          customerEmail: body.customerEmail,
+          customerCpf: body.customerCpfCnpj,
+          customerPhone: body.customerPhone,
+          externalRef: `zp_${link.id}_${Date.now()}`,
+        });
+      }
+
+      if (!chargeResult.success) {
+        const errorMsg = chargeResult.error || 'Erro ao gerar cobrança PIX';
+        console.error(`[CHECKOUT PIX] ${sellerProvider} falhou: ${errorMsg}`, chargeResult.debug);
         return reply.send({ success: false, message: errorMsg, error: errorMsg });
       }
 
-      if (!sharkResult.pixCode) {
+      if (!chargeResult.pixCode) {
         return reply.send({
           success: false,
           message: 'Não foi possível gerar o código PIX. Tente novamente.',
@@ -314,7 +332,9 @@ export async function paymentsRoutes(app: FastifyInstance) {
         });
       }
 
-      const feeCalc = calculatePixFeeSellerPays(baseValue, rates);
+      // Aplicar taxas específicas do adquirente (Enki: 4.99% + R$2.50)
+      const effectiveRates = applyProviderRateOverrides(rates, sellerProvider);
+      const feeCalc = calculatePixFeeSellerPays(baseValue, effectiveRates);
 
       const savedPayment = await prisma.payment.create({
         data: {
@@ -325,9 +345,9 @@ export async function paymentsRoutes(app: FastifyInstance) {
           status: 'PENDING',
           description,
           due_date: new Date(),
-          efi_txid: sharkResult.transactionId,
-          pix_qrcode: sharkResult.pixQrCode,
-          pix_copy_paste: sharkResult.pixCode,
+          efi_txid: chargeResult.transactionId,
+          pix_qrcode: chargeResult.pixQrCode,
+          pix_copy_paste: chargeResult.pixCode,
           payment_link_id: link.id,
           metadata: JSON.parse(JSON.stringify({
             base_value: baseValue,
@@ -335,8 +355,10 @@ export async function paymentsRoutes(app: FastifyInstance) {
             reserve_amount: feeCalc.reserveAmount,
             fee_payer: 'seller',
             seller_rates: rates,
-            payment_provider: 'sharkbanking',
-            shark_transaction_id: sharkResult.transactionId,
+            payment_provider: sellerProvider,
+            ...(sellerProvider === 'enki'
+              ? { enki_transaction_id: chargeResult.transactionId }
+              : { shark_transaction_id: chargeResult.transactionId }),
             customer_ip: clientIp,
             customer_name: body.customerName,
             customer_email: body.customerEmail,
@@ -358,10 +380,10 @@ export async function paymentsRoutes(app: FastifyInstance) {
 
       const payment = {
         id: savedPayment.id,
-        txid: sharkResult.transactionId,
+        txid: chargeResult.transactionId,
         status: 'PENDING',
-        pixCode: sharkResult.pixCode,
-        pixQrCode: sharkResult.pixQrCode,
+        pixCode: chargeResult.pixCode,
+        pixQrCode: chargeResult.pixQrCode,
       };
 
       // Sucesso

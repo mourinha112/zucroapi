@@ -33,6 +33,12 @@ export const env = {
   SHARK_SECRET_KEY: process.env.SHARK_SECRET_KEY || '',
   SHARK_WITHDRAW_KEY: process.env.SHARK_WITHDRAW_KEY || '',
   SHARK_WEBHOOK_URL: process.env.SHARK_WEBHOOK_URL || '',
+
+  // Enki Bank
+  ENKI_PUBLIC_KEY: process.env.ENKI_PUBLIC_KEY || '',
+  ENKI_SECRET_KEY: process.env.ENKI_SECRET_KEY || '',
+  ENKI_WITHDRAW_KEY: process.env.ENKI_WITHDRAW_KEY || '',
+  ENKI_WEBHOOK_URL: process.env.ENKI_WEBHOOK_URL || '',
   
   // Resend (Email)
   RESEND_API_KEY: process.env.RESEND_API_KEY || '',

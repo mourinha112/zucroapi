@@ -2,9 +2,11 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../../config/database';
 import { createSharkPixCharge } from '../../providers/sharkbanking/shark.pix';
+import { createEnkiPixCharge } from '../../providers/enki/enki.pix';
 import {
   getEffectiveRates,
   calculatePixFeeSellerPays,
+  applyProviderRateOverrides,
 } from '../../providers/efibank/fee.calculator';
 import crypto from 'crypto';
 import {
@@ -163,26 +165,43 @@ export async function integrationsRoutes(app: FastifyInstance) {
       let payment: any;
       let chargeData: any = {};
 
-      // ========== PIX via SharkBanking ==========
+      // ========== PIX ==========
       if (body.billing_type === 'PIX') {
-        const sharkResult = await createSharkPixCharge({
-          value: body.value,
-          description,
-          customerName: body.customer?.name || 'Cliente',
-          customerEmail: body.customer?.email || '',
-          customerCpf: body.customer?.cpf_cnpj,
-          customerPhone: body.customer?.phone,
-          externalRef: body.external_reference || `api_${user.id}_${Date.now()}`,
-        });
+        const sellerProvider = (user as any).payment_provider || 'sharkbanking';
+        let chargeRes: { success: boolean; transactionId?: string; pixCode?: string; pixQrCode?: string; error?: string; debug?: any };
 
-        if (!sharkResult.success || !sharkResult.pixCode) {
+        if (sellerProvider === 'enki') {
+          chargeRes = await createEnkiPixCharge({
+            value: body.value,
+            description,
+            customerName: body.customer?.name || 'Cliente',
+            customerEmail: body.customer?.email || '',
+            customerCpf: body.customer?.cpf_cnpj,
+            customerPhone: body.customer?.phone,
+            externalRef: body.external_reference || `api_${user.id}_${Date.now()}`,
+          });
+        } else {
+          chargeRes = await createSharkPixCharge({
+            value: body.value,
+            description,
+            customerName: body.customer?.name || 'Cliente',
+            customerEmail: body.customer?.email || '',
+            customerCpf: body.customer?.cpf_cnpj,
+            customerPhone: body.customer?.phone,
+            externalRef: body.external_reference || `api_${user.id}_${Date.now()}`,
+          });
+        }
+
+        if (!chargeRes.success || !chargeRes.pixCode) {
           return reply.status(400).send({
-            error: sharkResult.error || 'Erro ao gerar cobrança PIX',
+            error: chargeRes.error || 'Erro ao gerar cobrança PIX',
             code: 'PIX_CREATION_FAILED',
           });
         }
 
-        const feeCalc = calculatePixFeeSellerPays(body.value, rates);
+        // Aplicar taxas específicas do adquirente (Enki: 4.99% + R$2.50)
+        const effectiveRates = applyProviderRateOverrides(rates, sellerProvider);
+        const feeCalc = calculatePixFeeSellerPays(body.value, effectiveRates);
 
         payment = await prisma.payment.create({
           data: {
@@ -193,16 +212,18 @@ export async function integrationsRoutes(app: FastifyInstance) {
             status: 'PENDING',
             description,
             due_date: body.due_date ? new Date(body.due_date) : new Date(),
-            efi_txid: sharkResult.transactionId,
-            pix_qrcode: sharkResult.pixQrCode,
-            pix_copy_paste: sharkResult.pixCode,
+            efi_txid: chargeRes.transactionId,
+            pix_qrcode: chargeRes.pixQrCode,
+            pix_copy_paste: chargeRes.pixCode,
             metadata: {
               external_reference: body.external_reference,
               callback_url: body.callback_url,
               postback_url: body.postback_url || body.callback_url,
               platform_fee: feeCalc.platformFee,
-              payment_provider: 'sharkbanking',
-              shark_transaction_id: sharkResult.transactionId,
+              payment_provider: sellerProvider,
+              ...(sellerProvider === 'enki'
+                ? { enki_transaction_id: chargeRes.transactionId }
+                : { shark_transaction_id: chargeRes.transactionId }),
               customer_name: body.customer?.name,
               customer_email: body.customer?.email,
               customer_document: body.customer?.cpf_cnpj,
@@ -221,9 +242,9 @@ export async function integrationsRoutes(app: FastifyInstance) {
           net_value: feeCalc.netValue,
           platform_fee: feeCalc.platformFee,
           pix: {
-            txid: sharkResult.transactionId,
-            qr_code: sharkResult.pixQrCode,
-            copy_paste: sharkResult.pixCode,
+            txid: chargeRes.transactionId,
+            qr_code: chargeRes.pixQrCode,
+            copy_paste: chargeRes.pixCode,
             expires_at: new Date(Date.now() + 3600000).toISOString(),
           },
           created_at: payment.created_at,
