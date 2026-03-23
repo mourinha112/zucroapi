@@ -9,7 +9,7 @@ export const DEFAULT_RATES = {
   installment_fee: 0,    // Sem juros de parcelamento (somente PIX)
   reserve_percent: 0.05, // 5% de reserva
   reserve_days: 30,      // Dias para liberar reserva
-  withdrawal_fee: 2.00,  // Taxa de saque
+  withdrawal_fee: 10.00, // Taxa de saque
   max_installments: 1,   // Somente à vista (PIX)
   min_pix_value: 1.00,   // Valor mínimo PIX
   min_card_value: 5.00,  // Valor mínimo cartão
