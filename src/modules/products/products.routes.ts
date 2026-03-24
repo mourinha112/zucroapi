@@ -6,7 +6,7 @@ import { authenticate, standardRateLimit, createResourceRateLimit } from '../../
 const createProductSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
-  price: z.number().positive(),
+  price: z.number().positive().max(1000, { message: 'O valor máximo do produto é R$ 1.000,00' }),
   image_url: z.string().optional(),
   stock: z.number().optional(),
   fee_payer: z.enum(['seller', 'buyer']).optional(),
