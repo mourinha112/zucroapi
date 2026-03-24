@@ -44,7 +44,7 @@ export const createSharkPixCharge = async (data: SharkPixChargeData): Promise<Sh
     },
     items: [
       {
-        title: data.description.substring(0, 100),
+        title: (data.description || 'Pagamento').substring(0, 100).padEnd(3, ' '),
         unitPrice: amountInCents,
         quantity: 1,
         tangible: false,

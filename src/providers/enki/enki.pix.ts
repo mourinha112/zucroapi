@@ -44,7 +44,7 @@ export const createEnkiPixCharge = async (data: EnkiPixChargeData): Promise<Enki
     },
     items: [
       {
-        title: data.description.substring(0, 100),
+        title: (data.description || 'Pagamento').substring(0, 100).padEnd(3, ' '),
         unit_price: amountInCents,
         quantity: 1,
         tangible: false,
