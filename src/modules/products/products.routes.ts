@@ -32,7 +32,13 @@ export async function productsRoutes(app: FastifyInstance) {
     preHandler: [createResourceRateLimit, authenticate],
   }, async (request, reply) => {
     const decoded = request.user as { id: string };
-    const body = createProductSchema.parse(request.body);
+
+    const parsed = createProductSchema.safeParse(request.body);
+    if (!parsed.success) {
+      const firstError = parsed.error.errors[0]?.message || 'Dados inválidos';
+      return reply.status(400).send({ success: false, error: firstError, message: firstError });
+    }
+    const body = parsed.data;
 
     const product = await prisma.product.create({
       data: {
