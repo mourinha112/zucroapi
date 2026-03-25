@@ -9,12 +9,13 @@ import {
   calculateReleaseDate,
   applyProviderRateOverrides,
 } from '../../providers/efibank/fee.calculator';
-import { 
-  authenticate, 
-  standardRateLimit, 
-  checkoutRateLimit, 
-  createResourceRateLimit 
+import {
+  authenticate,
+  standardRateLimit,
+  checkoutRateLimit,
+  createResourceRateLimit
 } from '../../middlewares';
+import { notifySalePending } from '../push/push.service';
 
 export async function paymentsRoutes(app: FastifyInstance) {
   // Listar pagamentos do usuário
@@ -386,6 +387,13 @@ export async function paymentsRoutes(app: FastifyInstance) {
         where: { id: link.id },
         data: { payments_count: { increment: 1 } },
       });
+
+      // Notificação push de venda pendente
+      try {
+        await notifySalePending(link.user_id, baseValue, savedPayment.id);
+      } catch (pushError) {
+        console.error('[CHECKOUT] Erro ao enviar push de venda pendente:', pushError);
+      }
 
       const payment = {
         id: savedPayment.id,

@@ -16,6 +16,7 @@ import {
   standardRateLimit,
   createResourceRateLimit,
 } from '../../middlewares';
+import { notifySalePending } from '../push/push.service';
 
 // Schemas de validação
 const createChargeSchema = z.object({
@@ -232,6 +233,13 @@ export async function integrationsRoutes(app: FastifyInstance) {
             },
           },
         });
+
+        // Notificação push de venda pendente
+        try {
+          await notifySalePending(user.id, body.value, payment.id);
+        } catch (pushError) {
+          console.error('[API] Erro ao enviar push de venda pendente:', pushError);
+        }
 
         chargeData = {
           id: payment.id,
