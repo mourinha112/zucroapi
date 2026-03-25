@@ -152,6 +152,65 @@ export async function pushRoutes(app: FastifyInstance) {
     });
   });
 
+  // Buscar preferências de notificação
+  app.get('/preferences', {
+    preHandler: [standardRateLimit, authenticate],
+  }, async (request, reply) => {
+    const user = request.currentUser!;
+
+    const userData = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { notification_preferences: true },
+    });
+
+    const defaults = { sale_approved: true, sale_pending: true, withdrawal_approved: true };
+    const prefs = userData?.notification_preferences as any || defaults;
+
+    return reply.send({
+      success: true,
+      preferences: {
+        sale_approved: prefs.sale_approved ?? true,
+        sale_pending: prefs.sale_pending ?? true,
+        withdrawal_approved: prefs.withdrawal_approved ?? true,
+      },
+    });
+  });
+
+  // Atualizar preferências de notificação
+  app.put('/preferences', {
+    preHandler: [standardRateLimit, authenticate],
+  }, async (request, reply) => {
+    const user = request.currentUser!;
+    const body = request.body as {
+      sale_approved?: boolean;
+      sale_pending?: boolean;
+      withdrawal_approved?: boolean;
+    };
+
+    // Buscar preferências atuais
+    const userData = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { notification_preferences: true },
+    });
+
+    const current = (userData?.notification_preferences as any) || {};
+    const updated = {
+      sale_approved: body.sale_approved ?? current.sale_approved ?? true,
+      sale_pending: body.sale_pending ?? current.sale_pending ?? true,
+      withdrawal_approved: body.withdrawal_approved ?? current.withdrawal_approved ?? true,
+    };
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { notification_preferences: updated },
+    });
+
+    return reply.send({
+      success: true,
+      preferences: updated,
+    });
+  });
+
   // Endpoint para teste de notificação (apenas para o próprio usuário)
   app.post('/test', {
     preHandler: [standardRateLimit, authenticate],

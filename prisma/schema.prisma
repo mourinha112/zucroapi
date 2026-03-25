@@ -42,6 +42,7 @@ model User {
   blocked_at                DateTime? @db.Timestamptz
   blocked_by                String?   @db.Uuid
   blocked_reason            String?
+  notification_preferences  Json      @default("{\"sale_approved\":true,\"sale_pending\":true,\"withdrawal_approved\":true}") // Preferências de notificação push
   created_at                DateTime  @default(now()) @db.Timestamptz
   updated_at                DateTime  @default(now()) @db.Timestamptz
 

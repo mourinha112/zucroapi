@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../config/database';
 import { authenticateAdmin, standardRateLimit, sensitiveActionRateLimit } from '../../middlewares';
+import { notifyWithdrawalApproved, notifyWithdrawalRejected } from '../push/push.service';
 
 export async function adminRoutes(app: FastifyInstance) {
   // Dashboard stats com GMV, Lucro e dados para gráficos
@@ -438,6 +439,13 @@ export async function adminRoutes(app: FastifyInstance) {
           },
         });
 
+        // Enviar notificação push de saque aprovado
+        try {
+          await notifyWithdrawalApproved(withdrawal.user_id, Number(withdrawal.amount), id);
+        } catch (pushErr) {
+          console.error('[SAQUE] Erro ao enviar push de saque aprovado:', pushErr);
+        }
+
         return reply.send({
           success: true,
           message: `Saque aprovado e PIX enviado automaticamente via ${providerName}!`,
@@ -469,6 +477,15 @@ export async function adminRoutes(app: FastifyInstance) {
         ...(body.status === 'completed' && { completed_at: new Date() }),
       },
     });
+
+    // Enviar notificação push
+    try {
+      if (body.status === 'rejected') {
+        await notifyWithdrawalRejected(withdrawal.user_id, Number(withdrawal.amount), body.reason || 'Sem motivo informado', id);
+      }
+    } catch (pushErr) {
+      console.error('[SAQUE] Erro ao enviar push:', pushErr);
+    }
 
     // Log da ação
     await prisma.adminLog.create({

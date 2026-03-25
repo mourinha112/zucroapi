@@ -106,7 +106,33 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
 }
 
 /**
- * Envia notificação de nova venda
+ * Busca preferências de notificação do usuário
+ */
+async function getNotificationPreferences(userId: string): Promise<{
+  sale_approved: boolean;
+  sale_pending: boolean;
+  withdrawal_approved: boolean;
+}> {
+  const defaults = { sale_approved: true, sale_pending: true, withdrawal_approved: true };
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { notification_preferences: true },
+    });
+    if (!user?.notification_preferences) return defaults;
+    const prefs = user.notification_preferences as any;
+    return {
+      sale_approved: prefs.sale_approved ?? true,
+      sale_pending: prefs.sale_pending ?? true,
+      withdrawal_approved: prefs.withdrawal_approved ?? true,
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+/**
+ * Envia notificação de venda aprovada (paga)
  */
 export async function notifySale(
   userId: string,
@@ -114,6 +140,9 @@ export async function notifySale(
   customerName: string,
   paymentId: string
 ): Promise<void> {
+  const prefs = await getNotificationPreferences(userId);
+  if (!prefs.sale_approved) return;
+
   const formattedAmount = new Intl.NumberFormat('pt-BR', {
     style: 'currency',
     currency: 'BRL',
@@ -133,6 +162,35 @@ export async function notifySale(
 }
 
 /**
+ * Envia notificação de venda pendente
+ */
+export async function notifySalePending(
+  userId: string,
+  amount: number,
+  paymentId: string
+): Promise<void> {
+  const prefs = await getNotificationPreferences(userId);
+  if (!prefs.sale_pending) return;
+
+  const formattedAmount = new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(amount);
+
+  await sendPushToUser(userId, {
+    title: '⏳ Venda Pendente',
+    body: `Nova venda de ${formattedAmount} aguardando pagamento.`,
+    tag: `sale-pending-${paymentId}`,
+    data: {
+      type: 'sale',
+      url: '/vendas',
+      paymentId,
+      amount,
+    },
+  });
+}
+
+/**
  * Envia notificação de saque aprovado
  */
 export async function notifyWithdrawalApproved(
@@ -140,6 +198,9 @@ export async function notifyWithdrawalApproved(
   amount: number,
   withdrawalId: string
 ): Promise<void> {
+  const prefs = await getNotificationPreferences(userId);
+  if (!prefs.withdrawal_approved) return;
+
   const formattedAmount = new Intl.NumberFormat('pt-BR', {
     style: 'currency',
     currency: 'BRL',
@@ -203,6 +264,7 @@ export async function notifyAccountApproved(userId: string): Promise<void> {
 export default {
   sendPushToUser,
   notifySale,
+  notifySalePending,
   notifyWithdrawalApproved,
   notifyWithdrawalRejected,
   notifyAccountApproved,

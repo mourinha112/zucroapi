@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../config/database';
 import { webhookQueue } from '../../queues/webhook.queue';
 import { authenticate, standardRateLimit, webhookRateLimit, createResourceRateLimit } from '../../middlewares';
-import { notifySale } from '../push/push.service';
+import { notifySale, notifySalePending } from '../push/push.service';
 import { sendChargePostback } from '../../utils/postback';
 import {
   getEffectiveRates,
@@ -205,6 +205,15 @@ export async function webhooksRoutes(app: FastifyInstance) {
               console.error('[WEBHOOK] Erro ao enviar postback:', webhookError);
             }
           }
+
+          // Se pendente, enviar notificação de venda pendente
+          if (newStatus === 'PENDING') {
+            try {
+              await notifySalePending(payment.user_id, Number(payment.value), payment.id);
+            } catch (pushError) {
+              console.error('[WEBHOOK] Erro ao enviar push de venda pendente:', pushError);
+            }
+          }
         }
       }
     }
@@ -400,6 +409,15 @@ export async function webhooksRoutes(app: FastifyInstance) {
           console.log(`[WEBHOOK] Postback Asaas enviado para usuário ${payment.user_id}`);
         } catch (webhookError) {
           console.error('[WEBHOOK] Erro ao enviar postback:', webhookError);
+        }
+      }
+
+      // Se pendente, enviar notificação de venda pendente
+      if (newStatus === 'PENDING') {
+        try {
+          await notifySalePending(payment.user_id, Number(payment.value), payment.id);
+        } catch (pushError) {
+          console.error('[WEBHOOK] Erro ao enviar push de venda pendente:', pushError);
         }
       }
     }
@@ -598,6 +616,15 @@ export async function webhooksRoutes(app: FastifyInstance) {
           console.error('[WEBHOOK] Erro postback:', webhookError);
         }
       }
+
+      // Se pendente, enviar notificação de venda pendente
+      if (newStatus === 'PENDING') {
+        try {
+          await notifySalePending(payment.user_id, Number(payment.value), payment.id);
+        } catch (pushError) {
+          console.error('[WEBHOOK] Erro push venda pendente:', pushError);
+        }
+      }
     }
 
     console.log('[WEBHOOK] ========================================');
@@ -793,6 +820,15 @@ export async function webhooksRoutes(app: FastifyInstance) {
             });
           } catch (webhookError) {
             console.error('[WEBHOOK] Erro postback:', webhookError);
+          }
+        }
+
+        // Se pendente, enviar notificação de venda pendente
+        if (newStatus === 'PENDING') {
+          try {
+            await notifySalePending(payment.user_id, Number(payment.value), payment.id);
+          } catch (pushError) {
+            console.error('[WEBHOOK] Erro push venda pendente:', pushError);
           }
         }
       }
