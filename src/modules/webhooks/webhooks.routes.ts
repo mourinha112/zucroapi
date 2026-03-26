@@ -4,6 +4,7 @@ import { webhookQueue } from '../../queues/webhook.queue';
 import { authenticate, standardRateLimit, webhookRateLimit, createResourceRateLimit } from '../../middlewares';
 import { notifySale, notifySalePending } from '../push/push.service';
 import { sendChargePostback } from '../../utils/postback';
+import { sendUtmifyPostback } from '../app-integrations/utmify.postback';
 import {
   getEffectiveRates,
   calculatePixFeeSellerPays,
@@ -615,6 +616,39 @@ export async function webhooksRoutes(app: FastifyInstance) {
         } catch (webhookError) {
           console.error('[WEBHOOK] Erro postback:', webhookError);
         }
+
+        // Postback para URL da cobrança (postback_url/callback_url - usado por integradores como Luna)
+        try {
+          const updatedPayment = await prisma.payment.findUnique({ where: { id: payment.id } });
+          if (updatedPayment) {
+            sendChargePostback(updatedPayment, 'charge.paid');
+          }
+        } catch (postbackError) {
+          console.error('[WEBHOOK] Erro charge postback:', postbackError);
+        }
+
+        // Postback para UTMify (se configurado)
+        try {
+          const metadata = payment.metadata as any;
+          await sendUtmifyPostback({
+            paymentId: payment.id,
+            sellerId: payment.user_id,
+            value: grossValue,
+            netValue: feeCalc.netValue,
+            platformFee: feeCalc.platformFee,
+            status: 'paid',
+            customerName: metadata?.customer_name || transactionData.customer?.name || 'Cliente',
+            customerEmail: metadata?.customer_email || transactionData.customer?.email || '',
+            customerPhone: metadata?.customer_phone || undefined,
+            customerDocument: metadata?.customer_document || undefined,
+            productName: payment.description || 'Produto ZucroPay',
+            productId: payment.payment_link_id || undefined,
+            createdAt: payment.created_at.toISOString().replace('T', ' ').substring(0, 19),
+            approvedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+          });
+        } catch (utmifyError) {
+          console.error('[WEBHOOK] Erro UTMify postback:', utmifyError);
+        }
       }
 
       // Se pendente, enviar notificação de venda pendente
@@ -820,6 +854,39 @@ export async function webhooksRoutes(app: FastifyInstance) {
             });
           } catch (webhookError) {
             console.error('[WEBHOOK] Erro postback:', webhookError);
+          }
+
+          // Postback para URL da cobrança (postback_url/callback_url - usado por integradores como Luna)
+          try {
+            const updatedPayment = await prisma.payment.findUnique({ where: { id: payment.id } });
+            if (updatedPayment) {
+              sendChargePostback(updatedPayment, 'charge.paid');
+            }
+          } catch (postbackError) {
+            console.error('[WEBHOOK] Erro charge postback:', postbackError);
+          }
+
+          // Postback para UTMify (se configurado)
+          try {
+            const metadata = payment.metadata as any;
+            await sendUtmifyPostback({
+              paymentId: payment.id,
+              sellerId: payment.user_id,
+              value: grossValue,
+              netValue: feeCalc.netValue,
+              platformFee: feeCalc.platformFee,
+              status: 'paid',
+              customerName: metadata?.customer_name || transactionData.customer?.name || 'Cliente',
+              customerEmail: metadata?.customer_email || transactionData.customer?.email || '',
+              customerPhone: metadata?.customer_phone || undefined,
+              customerDocument: metadata?.customer_document || undefined,
+              productName: payment.description || 'Produto ZucroPay',
+              productId: payment.payment_link_id || undefined,
+              createdAt: payment.created_at.toISOString().replace('T', ' ').substring(0, 19),
+              approvedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+            });
+          } catch (utmifyError) {
+            console.error('[WEBHOOK] Erro UTMify postback:', utmifyError);
           }
         }
 
