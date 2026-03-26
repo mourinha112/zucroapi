@@ -1811,4 +1811,76 @@ export async function adminRoutes(app: FastifyInstance) {
       return reply.send({ success: true, logs: [] });
     }
   });
+
+  // ========================================
+  // IMPERSONATE USER (Acessar conta do seller)
+  // ========================================
+  app.post('/users/:id/impersonate', {
+    preHandler: [sensitiveActionRateLimit, authenticateAdmin],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const { id } = request.params as { id: string };
+
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          balance: true,
+          account_status: true,
+          identity_verified: true,
+          cpf_cnpj: true,
+          phone: true,
+          person_type: true,
+          payment_provider: true,
+        },
+      });
+
+      if (!user) {
+        return reply.status(404).send({ success: false, error: 'Usuário não encontrado' });
+      }
+
+      // Gerar token JWT para o seller
+      const token = app.jwt.sign(
+        { id: user.id, email: user.email, type: 'user' },
+        { expiresIn: '2h' }
+      );
+
+      // Log da ação de impersonate
+      try {
+        await prisma.adminLog.create({
+          data: {
+            admin_id: (request as any).adminUser?.id || 'unknown',
+            action: 'impersonate_user',
+            target_type: 'user',
+            target_id: user.id,
+            details: { user_email: user.email, user_name: user.name },
+          },
+        });
+      } catch (e) {
+        console.log('Could not create admin log for impersonate:', e);
+      }
+
+      return reply.send({
+        success: true,
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          balance: Number(user.balance),
+          account_status: user.account_status,
+          identity_verified: user.identity_verified,
+          cpf_cnpj: user.cpf_cnpj,
+          phone: user.phone,
+          person_type: user.person_type,
+          payment_provider: user.payment_provider,
+        },
+      });
+    } catch (error: any) {
+      console.error('Erro ao impersonar usuário:', error);
+      return reply.status(500).send({ success: false, error: 'Erro ao acessar conta do usuário' });
+    }
+  });
 }
