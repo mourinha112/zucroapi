@@ -44,7 +44,7 @@ export async function sendChargePostback(payment: any, event: string, extraData?
         'User-Agent': 'ZucroPay-Webhook/1.0',
       },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(10000), // timeout 10s
+      signal: AbortSignal.timeout(30000), // timeout 30s
     });
 
     console.log(`[POSTBACK] Resposta de ${postbackUrl}: ${response.status}`);
