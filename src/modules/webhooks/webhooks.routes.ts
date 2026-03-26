@@ -505,7 +505,7 @@ export async function webhooksRoutes(app: FastifyInstance) {
 
       console.log(`[WEBHOOK] SharkBanking ${sharkTransactionId} atualizado: ${newStatus}`);
 
-      // Enviar postback
+      // Enviar postback com status atualizado
       const sharkEventMap: Record<string, string> = {
         'RECEIVED': 'charge.paid',
         'REFUNDED': 'charge.refunded',
@@ -513,7 +513,10 @@ export async function webhooksRoutes(app: FastifyInstance) {
         'REFUSED': 'charge.refused',
         'PENDING': 'charge.pending',
       };
-      sendChargePostback(payment, sharkEventMap[newStatus] || `charge.${newStatus.toLowerCase()}`);
+      const updatedPaymentForPostback = await prisma.payment.findUnique({ where: { id: payment.id } });
+      if (updatedPaymentForPostback) {
+        sendChargePostback(updatedPaymentForPostback, sharkEventMap[newStatus] || `charge.${newStatus.toLowerCase()}`);
+      }
 
       // Se foi pago, processar saldo
       if (newStatus === 'RECEIVED') {
@@ -615,16 +618,6 @@ export async function webhooksRoutes(app: FastifyInstance) {
           });
         } catch (webhookError) {
           console.error('[WEBHOOK] Erro postback:', webhookError);
-        }
-
-        // Postback para URL da cobrança (postback_url/callback_url - usado por integradores como Luna)
-        try {
-          const updatedPayment = await prisma.payment.findUnique({ where: { id: payment.id } });
-          if (updatedPayment) {
-            sendChargePostback(updatedPayment, 'charge.paid');
-          }
-        } catch (postbackError) {
-          console.error('[WEBHOOK] Erro charge postback:', postbackError);
         }
 
         // Postback para UTMify (se configurado)
@@ -742,7 +735,7 @@ export async function webhooksRoutes(app: FastifyInstance) {
 
         console.log(`[WEBHOOK] Enki ${enkiTransactionId} atualizado: ${newStatus}`);
 
-        // Enviar postback
+        // Enviar postback com status atualizado
         const enkiEventMap: Record<string, string> = {
           'RECEIVED': 'charge.paid',
           'REFUNDED': 'charge.refunded',
@@ -750,7 +743,10 @@ export async function webhooksRoutes(app: FastifyInstance) {
           'REFUSED': 'charge.refused',
           'PENDING': 'charge.pending',
         };
-        sendChargePostback(payment, enkiEventMap[newStatus] || `charge.${newStatus.toLowerCase()}`);
+        const updatedEnkiPayment = await prisma.payment.findUnique({ where: { id: payment.id } });
+        if (updatedEnkiPayment) {
+          sendChargePostback(updatedEnkiPayment, enkiEventMap[newStatus] || `charge.${newStatus.toLowerCase()}`);
+        }
 
         // Se foi pago, processar saldo
         if (newStatus === 'RECEIVED') {
@@ -854,16 +850,6 @@ export async function webhooksRoutes(app: FastifyInstance) {
             });
           } catch (webhookError) {
             console.error('[WEBHOOK] Erro postback:', webhookError);
-          }
-
-          // Postback para URL da cobrança (postback_url/callback_url - usado por integradores como Luna)
-          try {
-            const updatedPayment = await prisma.payment.findUnique({ where: { id: payment.id } });
-            if (updatedPayment) {
-              sendChargePostback(updatedPayment, 'charge.paid');
-            }
-          } catch (postbackError) {
-            console.error('[WEBHOOK] Erro charge postback:', postbackError);
           }
 
           // Postback para UTMify (se configurado)
