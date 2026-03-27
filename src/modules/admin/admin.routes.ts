@@ -1851,7 +1851,7 @@ export async function adminRoutes(app: FastifyInstance) {
       try {
         await prisma.adminLog.create({
           data: {
-            admin_id: (request as any).adminUser?.id || 'unknown',
+            admin_id: request.currentUser!.id,
             action: 'impersonate_user',
             target_type: 'user',
             target_id: user.id,

@@ -48,7 +48,6 @@ export const createEnkiPixCharge = async (data: EnkiPixChargeData): Promise<Enki
         unit_price: amountInCents,
         quantity: 1,
         tangible: false,
-        ...(data.externalRef && { external_ref: data.externalRef }),
       },
     ],
   };
