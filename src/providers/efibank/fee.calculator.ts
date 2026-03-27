@@ -385,9 +385,9 @@ export const calculateInstallmentValue = (
 };
 
 /**
- * Aplica taxas específicas por adquirente SOMENTE se o seller não tem taxa customizada.
+ * Aplica taxas específicas por adquirente.
  * Se o seller tem custom rate, a taxa dele prevalece.
- * Enki padrão: 4.99% + R$2.50 fixo por transação PIX.
+ * Enki padrão: 3.50% + R$2.50 fixo por transação PIX.
  */
 export const applyProviderRateOverrides = (
   rates: SellerRates,
@@ -397,7 +397,7 @@ export const applyProviderRateOverrides = (
   if (provider === 'enki' && !hasCustomRates) {
     return {
       ...rates,
-      pix_rate: 4.99,
+      pix_rate: 3.50,
       fixed_fee: 2.50,
     };
   }
