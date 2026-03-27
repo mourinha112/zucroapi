@@ -17,12 +17,24 @@ export async function sendChargePostback(payment: any, event: string, extraData?
 
   if (!postbackUrl) return;
 
+  // Derivar o status correto a partir do evento para evitar inconsistência
+  // (ex: findUnique após $executeRaw pode retornar status stale)
+  const eventStatusMap: Record<string, string> = {
+    'charge.paid': 'RECEIVED',
+    'charge.refunded': 'REFUNDED',
+    'charge.cancelled': 'CANCELLED',
+    'charge.refused': 'REFUSED',
+    'charge.pending': 'PENDING',
+    'charge.overdue': 'OVERDUE',
+  };
+  const resolvedStatus = eventStatusMap[event] || payment.status;
+
   try {
     const payload = {
       event,
       charge: {
         id: payment.id,
-        status: payment.status,
+        status: resolvedStatus,
         billing_type: payment.billing_type,
         value: Number(payment.value),
         net_value: payment.net_value ? Number(payment.net_value) : null,
@@ -35,6 +47,7 @@ export async function sendChargePostback(payment: any, event: string, extraData?
     };
 
     console.log(`[POSTBACK] Enviando para ${postbackUrl}: ${event}`);
+    console.log(`[POSTBACK] Payload completo:`, JSON.stringify(payload, null, 2));
 
     const response = await fetch(postbackUrl, {
       method: 'POST',
@@ -47,7 +60,9 @@ export async function sendChargePostback(payment: any, event: string, extraData?
       signal: AbortSignal.timeout(30000), // timeout 30s
     });
 
-    console.log(`[POSTBACK] Resposta de ${postbackUrl}: ${response.status}`);
+    const responseBody = await response.text().catch(() => '');
+    console.log(`[POSTBACK] Resposta de ${postbackUrl}: HTTP ${response.status}`);
+    console.log(`[POSTBACK] Response body:`, responseBody.substring(0, 1000));
   } catch (error: any) {
     console.error(`[POSTBACK] Erro ao enviar para ${postbackUrl}:`, error.message);
   }
