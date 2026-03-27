@@ -125,6 +125,10 @@
             <a href="#api-webhooks-delete" class="nav-link sub" data-section="api-webhooks-delete">DELETE Remover</a>
           </div>
           <div class="nav-group">
+            <div class="nav-group-title">Postbacks</div>
+            <a href="#postback-charges" class="nav-link sub" data-section="postback-charges">Postback de Cobranças</a>
+          </div>
+          <div class="nav-group">
             <div class="nav-group-title">API Keys</div>
             <a href="#api-keys-create" class="nav-link sub" data-section="api-keys-create">POST Criar</a>
             <a href="#api-keys-list" class="nav-link sub" data-section="api-keys-list">GET Listar</a>
@@ -861,7 +865,33 @@ window.location.href = data.payment_url;</code></pre>
         <h2>O que são Webhooks?</h2>
         <p>Webhooks são notificações HTTP enviadas automaticamente quando eventos acontecem na sua conta. Com webhooks, você não precisa ficar consultando o status das cobranças - a ZucroPay avisa você quando algo acontece.</p>
 
-        <h2>Eventos Disponíveis</h2>
+        <h2>Tipos de Notificação</h2>
+        <p>A ZucroPay possui <strong>dois tipos</strong> de notificação:</p>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Tipo</th>
+                <th>Como configurar</th>
+                <th>Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Webhooks</strong></td>
+                <td>Cadastrar via API (<code>POST /api/v1/webhooks</code>) ou Dashboard</td>
+                <td>Recebe <strong>todos</strong> os eventos da sua conta (pagamentos, saques, etc.)</td>
+              </tr>
+              <tr>
+                <td><strong>Postback (por cobrança)</strong></td>
+                <td>Enviar <code>postback_url</code> ao criar a cobrança</td>
+                <td>Recebe apenas eventos daquela cobrança específica (<code>charge.paid</code>, <code>charge.refunded</code>, etc.)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2>Eventos de Webhook (conta)</h2>
         <div class="table-wrapper">
           <table>
             <thead>
@@ -880,8 +910,30 @@ window.location.href = data.payment_url;</code></pre>
           </table>
         </div>
 
-        <h2>Formato do Payload</h2>
-        <p>Quando um evento ocorre, enviamos um POST para sua URL:</p>
+        <h2>Eventos de Postback (por cobrança)</h2>
+        <p>Enviados para a <code>postback_url</code> ou <code>callback_url</code> informada na criação da cobrança:</p>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Evento</th>
+                <th>Status da cobrança</th>
+                <th>Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>charge.paid</code></td><td><code>RECEIVED</code></td><td>Cobrança paga/confirmada</td></tr>
+              <tr><td><code>charge.pending</code></td><td><code>PENDING</code></td><td>Cobrança aguardando pagamento</td></tr>
+              <tr><td><code>charge.refunded</code></td><td><code>REFUNDED</code></td><td>Cobrança estornada</td></tr>
+              <tr><td><code>charge.cancelled</code></td><td><code>CANCELLED</code></td><td>Cobrança cancelada</td></tr>
+              <tr><td><code>charge.refused</code></td><td><code>REFUSED</code></td><td>Cobrança recusada pelo gateway/banco</td></tr>
+              <tr><td><code>charge.overdue</code></td><td><code>OVERDUE</code></td><td>Cobrança vencida</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2>Formato do Payload - Webhook (conta)</h2>
+        <p>Quando um evento de conta ocorre, enviamos um POST para suas URLs de webhook cadastradas:</p>
         <div class="code-block">
           <pre><code class="language-json">{
   "event": "payment.received",
@@ -900,6 +952,133 @@ window.location.href = data.payment_url;</code></pre>
 }</code></pre>
         </div>
 
+        <h3>Headers enviados</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Header</th>
+                <th>Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>Content-Type</code></td><td><code>application/json</code></td></tr>
+              <tr><td><code>X-Webhook-Event</code></td><td>Nome do evento (ex: <code>payment.received</code>)</td></tr>
+              <tr><td><code>X-Webhook-Secret</code></td><td>Secret configurado no webhook (se houver)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2>Formato do Payload - Postback (por cobrança)</h2>
+        <p>Quando o status de uma cobrança muda, enviamos um POST para a <code>postback_url</code> informada na criação:</p>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "event": "charge.paid",
+  "charge": {
+    "id": "d62327ae-c73d-4bfb-947d-8e79f7d61139",
+    "status": "RECEIVED",
+    "billing_type": "PIX",
+    "value": 99.90,
+    "net_value": 93.91,
+    "description": "Produto Premium",
+    "external_reference": "PEDIDO-123",
+    "payment_date": "2026-01-20T13:05:00.000Z"
+  },
+  "timestamp": "2026-01-20T13:05:00.694Z"
+}</code></pre>
+        </div>
+
+        <h3>Campos do objeto <code>charge</code></h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Campo</th>
+                <th>Tipo</th>
+                <th>Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>id</code></td><td>string (UUID)</td><td>ID da cobrança na ZucroPay</td></tr>
+              <tr><td><code>status</code></td><td>string</td><td>Status atual: <code>RECEIVED</code>, <code>PENDING</code>, <code>REFUNDED</code>, <code>CANCELLED</code>, <code>REFUSED</code>, <code>OVERDUE</code></td></tr>
+              <tr><td><code>billing_type</code></td><td>string</td><td>Tipo de pagamento: <code>PIX</code>, <code>CREDIT_CARD</code>, <code>BOLETO</code></td></tr>
+              <tr><td><code>value</code></td><td>number</td><td>Valor bruto da cobrança em reais (ex: 99.90)</td></tr>
+              <tr><td><code>net_value</code></td><td>number | null</td><td>Valor líquido (após taxas) em reais</td></tr>
+              <tr><td><code>description</code></td><td>string</td><td>Descrição da cobrança</td></tr>
+              <tr><td><code>external_reference</code></td><td>string | null</td><td>Referência externa informada na criação</td></tr>
+              <tr><td><code>payment_date</code></td><td>string | null</td><td>Data/hora do pagamento (ISO 8601). <code>null</code> se ainda não pago</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Headers enviados no postback</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Header</th>
+                <th>Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>Content-Type</code></td><td><code>application/json</code></td></tr>
+              <tr><td><code>X-ZucroPay-Event</code></td><td>Nome do evento (ex: <code>charge.paid</code>)</td></tr>
+              <tr><td><code>User-Agent</code></td><td><code>ZucroPay-Webhook/1.0</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Ciclo de Vida dos Status</h3>
+        <div class="code-block">
+          <pre><code class="language-text">Cobrança criada
+    │
+    ▼
+  PENDING ──────► RECEIVED (pago)
+    │                │
+    │                ▼
+    │            REFUNDED (estornado)
+    │
+    ├──────► CANCELLED (cancelado)
+    ├──────► REFUSED (recusado)
+    └──────► OVERDUE (vencido)</code></pre>
+        </div>
+
+        <h3>Exemplo de Postback - Cobrança Paga</h3>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "event": "charge.paid",
+  "charge": {
+    "id": "d62327ae-c73d-4bfb-947d-8e79f7d61139",
+    "status": "RECEIVED",
+    "billing_type": "PIX",
+    "value": 81.13,
+    "net_value": 76.08,
+    "description": "Compra na loja Example",
+    "external_reference": "4910125",
+    "payment_date": "2026-03-26T18:00:29.000Z"
+  },
+  "timestamp": "2026-03-26T18:00:29.694Z"
+}</code></pre>
+        </div>
+
+        <h3>Exemplo de Postback - Cobrança Estornada</h3>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "event": "charge.refunded",
+  "charge": {
+    "id": "d62327ae-c73d-4bfb-947d-8e79f7d61139",
+    "status": "REFUNDED",
+    "billing_type": "PIX",
+    "value": 81.13,
+    "net_value": 76.08,
+    "description": "Compra na loja Example",
+    "external_reference": "4910125",
+    "payment_date": "2026-03-26T18:00:29.000Z"
+  },
+  "timestamp": "2026-03-27T10:15:00.000Z"
+}</code></pre>
+        </div>
+
         <h2>Implementando seu Webhook</h2>
         
         <div class="code-tabs">
@@ -915,28 +1094,58 @@ const app = express();
 
 app.use(express.json());
 
+// Webhook da conta (cadastrado via API)
 app.post('/webhook', (req, res) => {
   const { event, data, timestamp } = req.body;
   const secret = req.headers['x-webhook-secret'];
-  
+
   // Valide o secret se configurado
   if (secret && secret !== process.env.WEBHOOK_SECRET) {
     return res.status(401).send('Invalid secret');
   }
-  
+
   switch (event) {
     case 'payment.received':
       console.log('Pagamento recebido!', data.payment_id);
-      // Liberar produto, enviar email, etc.
       liberarProduto(data);
       break;
-      
+
     case 'payment.refunded':
       console.log('Pagamento estornado!', data.payment_id);
-      // Reverter acesso, notificar, etc.
       break;
   }
-  
+
+  res.status(200).send('OK');
+});
+
+// Postback por cobrança (postback_url enviada na criação)
+app.post('/postback', (req, res) => {
+  const { event, charge, timestamp } = req.body;
+  const zucropyEvent = req.headers['x-zucropay-event'];
+
+  switch (event) {
+    case 'charge.paid':
+      console.log(`Cobrança ${charge.id} paga!`);
+      console.log(`Valor: R$${charge.value} | Líquido: R$${charge.net_value}`);
+      console.log(`Referência: ${charge.external_reference}`);
+      // Liberar produto, enviar email, etc.
+      liberarProduto(charge.external_reference);
+      break;
+
+    case 'charge.refunded':
+      console.log(`Cobrança ${charge.id} estornada!`);
+      revogarAcesso(charge.external_reference);
+      break;
+
+    case 'charge.cancelled':
+      console.log(`Cobrança ${charge.id} cancelada`);
+      break;
+
+    case 'charge.refused':
+      console.log(`Cobrança ${charge.id} recusada`);
+      break;
+  }
+
   // IMPORTANTE: Sempre retorne 200
   res.status(200).send('OK');
 });
@@ -953,28 +1162,50 @@ app.listen(3000);</code></pre>
 $payload = file_get_contents('php://input');
 $data = json_decode($payload, true);
 
-// Validar secret
+// Validar secret (para webhooks de conta)
 $receivedSecret = $_SERVER['HTTP_X_WEBHOOK_SECRET'] ?? '';
-if ($receivedSecret !== getenv('WEBHOOK_SECRET')) {
+if ($receivedSecret && $receivedSecret !== getenv('WEBHOOK_SECRET')) {
     http_response_code(401);
     exit('Invalid secret');
 }
 
-// Processar evento
-switch ($data['event']) {
-    case 'payment.received':
-        $paymentId = $data['data']['payment_id'];
-        // Liberar produto
-        liberarProduto($paymentId);
-        
-        // Enviar email
-        enviarEmailConfirmacao($data['data']['customer']['email']);
-        break;
-        
-    case 'payment.refunded':
-        // Reverter acesso
-        revogarAcesso($data['data']['payment_id']);
-        break;
+$event = $data['event'];
+
+// Webhook de conta (payment.*)
+if (str_starts_with($event, 'payment.')) {
+    switch ($event) {
+        case 'payment.received':
+            $paymentId = $data['data']['payment_id'];
+            liberarProduto($paymentId);
+            enviarEmailConfirmacao($data['data']['customer']['email']);
+            break;
+
+        case 'payment.refunded':
+            revogarAcesso($data['data']['payment_id']);
+            break;
+    }
+}
+
+// Postback por cobranca (charge.*)
+if (str_starts_with($event, 'charge.')) {
+    $charge = $data['charge'];
+
+    switch ($event) {
+        case 'charge.paid':
+            // Cobranca confirmada
+            liberarProduto($charge['external_reference']);
+            echo "Cobranca {$charge['id']} paga - R\${$charge['value']}";
+            break;
+
+        case 'charge.refunded':
+            revogarAcesso($charge['external_reference']);
+            break;
+
+        case 'charge.cancelled':
+        case 'charge.refused':
+            // Tratar cobranca cancelada/recusada
+            break;
+    }
 }
 
 // IMPORTANTE: Sempre retorne 200
@@ -992,25 +1223,48 @@ app = Flask(__name__)
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
+    """Webhook de conta (cadastrado via API)"""
     data = request.json
     secret = request.headers.get('X-Webhook-Secret')
-    
-    # Validar secret
-    if secret != os.environ.get('WEBHOOK_SECRET'):
+
+    if secret and secret != os.environ.get('WEBHOOK_SECRET'):
         return jsonify({'error': 'Invalid secret'}), 401
-    
+
     event = data.get('event')
     payload = data.get('data')
-    
+
     if event == 'payment.received':
         print(f"Pagamento recebido: {payload['payment_id']}")
-        # Liberar produto
         liberar_produto(payload)
-        
     elif event == 'payment.refunded':
         print(f"Pagamento estornado: {payload['payment_id']}")
-        # Reverter acesso
-    
+
+    return jsonify({'received': True}), 200
+
+
+@app.route('/postback', methods=['POST'])
+def postback():
+    """Postback por cobranca (postback_url enviada na criacao)"""
+    data = request.json
+    event = data.get('event')
+    charge = data.get('charge')
+
+    if event == 'charge.paid':
+        print(f"Cobranca {charge['id']} paga!")
+        print(f"Valor: R${charge['value']} | Liquido: R${charge['net_value']}")
+        print(f"Referencia: {charge['external_reference']}")
+        liberar_produto(charge['external_reference'])
+
+    elif event == 'charge.refunded':
+        print(f"Cobranca {charge['id']} estornada!")
+        revogar_acesso(charge['external_reference'])
+
+    elif event == 'charge.cancelled':
+        print(f"Cobranca {charge['id']} cancelada")
+
+    elif event == 'charge.refused':
+        print(f"Cobranca {charge['id']} recusada")
+
     # IMPORTANTE: Sempre retorne 200
     return jsonify({'received': True}), 200
 
@@ -1031,7 +1285,7 @@ if __name__ == '__main__':
               </svg>
             </button>
             <div class="accordion-content">
-              <p>Seu endpoint deve responder em até <strong>5 segundos</strong> com status <code>200</code>. Se precisar fazer processamento demorado, salve o evento e processe em background.</p>
+              <p>Seu endpoint deve responder em até <strong>30 segundos</strong> com status <code>200</code>. Se precisar fazer processamento demorado, salve o evento e processe em background.</p>
             </div>
           </div>
           <div class="accordion-item">
@@ -1597,7 +1851,7 @@ if __name__ == '__main__':
           <div class="param-row">
             <div class="param-name">postback_url</div>
             <div class="param-type">string</div>
-            <div class="param-desc">URL para receber webhooks de atualização de status da cobrança (charge.paid, charge.refunded, charge.cancelled, charge.refused)</div>
+            <div class="param-desc">URL para receber notificações de status da cobrança via POST. Eventos: <code>charge.paid</code>, <code>charge.refunded</code>, <code>charge.cancelled</code>, <code>charge.refused</code>, <code>charge.overdue</code>. Timeout: 30s. Veja <a href="#webhooks" data-navigate="webhooks">Webhooks</a> para detalhes do payload</div>
           </div>
           <div class="param-row">
             <div class="param-name">callback_url</div>
