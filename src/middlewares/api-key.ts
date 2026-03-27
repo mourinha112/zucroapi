@@ -15,6 +15,7 @@ export interface ApiKeyUser {
     email: string;
     name: string;
     account_status: string;
+    payment_provider: string | null;
   };
 }
 
@@ -68,6 +69,7 @@ export async function authenticateApiKey(
             email: true,
             name: true,
             account_status: true,
+            payment_provider: true,
           },
         },
       },
@@ -133,7 +135,7 @@ export async function authenticateApiKeyOrJwt(
     
     const user = await prisma.user.findUnique({
       where: { id: decoded.id },
-      select: { id: true, email: true, name: true, account_status: true },
+      select: { id: true, email: true, name: true, account_status: true, payment_provider: true },
     });
 
     if (!user) {
