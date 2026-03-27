@@ -200,8 +200,8 @@ export async function integrationsRoutes(app: FastifyInstance) {
           });
         }
 
-        // Aplicar taxas específicas do adquirente (Enki: 4.99% + R$2.50)
-        const effectiveRates = applyProviderRateOverrides(rates, sellerProvider);
+        // Aplicar taxas específicas do adquirente (só se seller não tem taxa customizada)
+        const effectiveRates = applyProviderRateOverrides(rates, sellerProvider, !!customRates?.pix_rate);
         const feeCalc = calculatePixFeeSellerPays(body.value, effectiveRates);
 
         payment = await prisma.payment.create({

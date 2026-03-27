@@ -761,8 +761,8 @@ export async function webhooksRoutes(app: FastifyInstance) {
             pix_rate: customRates.pix_rate ? Number(customRates.pix_rate) : undefined,
           } : null);
 
-          // Aplicar taxas Enki: 4.99% + R$2.50 fixo
-          const rates = applyProviderRateOverrides(baseRates, 'enki');
+          // Aplicar taxas Enki (só se seller não tem taxa customizada)
+          const rates = applyProviderRateOverrides(baseRates, 'enki', !!customRates?.pix_rate);
           const feeCalc = calculatePixFeeSellerPays(grossValue, rates);
 
           // Atualizar net_value no pagamento
