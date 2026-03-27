@@ -910,28 +910,6 @@ window.location.href = data.payment_url;</code></pre>
           </table>
         </div>
 
-        <h2>Eventos de Postback (por cobrança)</h2>
-        <p>Enviados para a <code>postback_url</code> ou <code>callback_url</code> informada na criação da cobrança:</p>
-        <div class="table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th>Evento</th>
-                <th>Status da cobrança</th>
-                <th>Descrição</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td><code>charge.paid</code></td><td><code>RECEIVED</code></td><td>Cobrança paga/confirmada</td></tr>
-              <tr><td><code>charge.pending</code></td><td><code>PENDING</code></td><td>Cobrança aguardando pagamento</td></tr>
-              <tr><td><code>charge.refunded</code></td><td><code>REFUNDED</code></td><td>Cobrança estornada</td></tr>
-              <tr><td><code>charge.cancelled</code></td><td><code>CANCELLED</code></td><td>Cobrança cancelada</td></tr>
-              <tr><td><code>charge.refused</code></td><td><code>REFUSED</code></td><td>Cobrança recusada pelo gateway/banco</td></tr>
-              <tr><td><code>charge.overdue</code></td><td><code>OVERDUE</code></td><td>Cobrança vencida</td></tr>
-            </tbody>
-          </table>
-        </div>
-
         <h2>Formato do Payload - Webhook (conta)</h2>
         <p>Quando um evento de conta ocorre, enviamos um POST para suas URLs de webhook cadastradas:</p>
         <div class="code-block">
@@ -967,116 +945,6 @@ window.location.href = data.payment_url;</code></pre>
               <tr><td><code>X-Webhook-Secret</code></td><td>Secret configurado no webhook (se houver)</td></tr>
             </tbody>
           </table>
-        </div>
-
-        <h2>Formato do Payload - Postback (por cobrança)</h2>
-        <p>Quando o status de uma cobrança muda, enviamos um POST para a <code>postback_url</code> informada na criação:</p>
-        <div class="code-block">
-          <pre><code class="language-json">{
-  "event": "charge.paid",
-  "charge": {
-    "id": "d62327ae-c73d-4bfb-947d-8e79f7d61139",
-    "status": "RECEIVED",
-    "billing_type": "PIX",
-    "value": 99.90,
-    "net_value": 93.91,
-    "description": "Produto Premium",
-    "external_reference": "PEDIDO-123",
-    "payment_date": "2026-01-20T13:05:00.000Z"
-  },
-  "timestamp": "2026-01-20T13:05:00.694Z"
-}</code></pre>
-        </div>
-
-        <h3>Campos do objeto <code>charge</code></h3>
-        <div class="table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th>Campo</th>
-                <th>Tipo</th>
-                <th>Descrição</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td><code>id</code></td><td>string (UUID)</td><td>ID da cobrança na ZucroPay</td></tr>
-              <tr><td><code>status</code></td><td>string</td><td>Status atual: <code>RECEIVED</code>, <code>PENDING</code>, <code>REFUNDED</code>, <code>CANCELLED</code>, <code>REFUSED</code>, <code>OVERDUE</code></td></tr>
-              <tr><td><code>billing_type</code></td><td>string</td><td>Tipo de pagamento: <code>PIX</code>, <code>CREDIT_CARD</code>, <code>BOLETO</code></td></tr>
-              <tr><td><code>value</code></td><td>number</td><td>Valor bruto da cobrança em reais (ex: 99.90)</td></tr>
-              <tr><td><code>net_value</code></td><td>number | null</td><td>Valor líquido (após taxas) em reais</td></tr>
-              <tr><td><code>description</code></td><td>string</td><td>Descrição da cobrança</td></tr>
-              <tr><td><code>external_reference</code></td><td>string | null</td><td>Referência externa informada na criação</td></tr>
-              <tr><td><code>payment_date</code></td><td>string | null</td><td>Data/hora do pagamento (ISO 8601). <code>null</code> se ainda não pago</td></tr>
-            </tbody>
-          </table>
-        </div>
-
-        <h3>Headers enviados no postback</h3>
-        <div class="table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th>Header</th>
-                <th>Descrição</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td><code>Content-Type</code></td><td><code>application/json</code></td></tr>
-              <tr><td><code>X-ZucroPay-Event</code></td><td>Nome do evento (ex: <code>charge.paid</code>)</td></tr>
-              <tr><td><code>User-Agent</code></td><td><code>ZucroPay-Webhook/1.0</code></td></tr>
-            </tbody>
-          </table>
-        </div>
-
-        <h3>Ciclo de Vida dos Status</h3>
-        <div class="code-block">
-          <pre><code class="language-text">Cobrança criada
-    │
-    ▼
-  PENDING ──────► RECEIVED (pago)
-    │                │
-    │                ▼
-    │            REFUNDED (estornado)
-    │
-    ├──────► CANCELLED (cancelado)
-    ├──────► REFUSED (recusado)
-    └──────► OVERDUE (vencido)</code></pre>
-        </div>
-
-        <h3>Exemplo de Postback - Cobrança Paga</h3>
-        <div class="code-block">
-          <pre><code class="language-json">{
-  "event": "charge.paid",
-  "charge": {
-    "id": "d62327ae-c73d-4bfb-947d-8e79f7d61139",
-    "status": "RECEIVED",
-    "billing_type": "PIX",
-    "value": 81.13,
-    "net_value": 76.08,
-    "description": "Compra na loja Example",
-    "external_reference": "4910125",
-    "payment_date": "2026-03-26T18:00:29.000Z"
-  },
-  "timestamp": "2026-03-26T18:00:29.694Z"
-}</code></pre>
-        </div>
-
-        <h3>Exemplo de Postback - Cobrança Estornada</h3>
-        <div class="code-block">
-          <pre><code class="language-json">{
-  "event": "charge.refunded",
-  "charge": {
-    "id": "d62327ae-c73d-4bfb-947d-8e79f7d61139",
-    "status": "REFUNDED",
-    "billing_type": "PIX",
-    "value": 81.13,
-    "net_value": 76.08,
-    "description": "Compra na loja Example",
-    "external_reference": "4910125",
-    "payment_date": "2026-03-26T18:00:29.000Z"
-  },
-  "timestamp": "2026-03-27T10:15:00.000Z"
-}</code></pre>
         </div>
 
         <h2>Implementando seu Webhook</h2>
@@ -1328,6 +1196,326 @@ if __name__ == '__main__':
               <tr><td>3ª</td><td>30 segundos</td></tr>
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <!-- Postback de Cobranças Section -->
+      <section id="postback-charges" class="content-section">
+        <div class="section-header">
+          <h1>Postback de Cobranças</h1>
+          <p class="section-description">Receba notificações de status por cobrança via <code>postback_url</code></p>
+        </div>
+
+        <h2>O que é o Postback?</h2>
+        <p>Ao criar uma cobrança, você pode informar uma <code>postback_url</code> (ou <code>callback_url</code>). Quando o status da cobrança mudar, a ZucroPay envia um <strong>POST</strong> para essa URL com os dados atualizados.</p>
+        <p>Diferente dos <a href="#webhooks" data-navigate="webhooks">Webhooks de conta</a> (que recebem todos os eventos), o postback é <strong>por cobrança</strong> e recebe apenas eventos daquela cobrança específica.</p>
+
+        <h2>Eventos</h2>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Evento</th>
+                <th>Status da cobrança</th>
+                <th>Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>charge.paid</code></td><td><code>RECEIVED</code></td><td>Cobrança paga/confirmada</td></tr>
+              <tr><td><code>charge.pending</code></td><td><code>PENDING</code></td><td>Cobrança aguardando pagamento</td></tr>
+              <tr><td><code>charge.refunded</code></td><td><code>REFUNDED</code></td><td>Cobrança estornada</td></tr>
+              <tr><td><code>charge.cancelled</code></td><td><code>CANCELLED</code></td><td>Cobrança cancelada</td></tr>
+              <tr><td><code>charge.refused</code></td><td><code>REFUSED</code></td><td>Cobrança recusada pelo gateway/banco</td></tr>
+              <tr><td><code>charge.overdue</code></td><td><code>OVERDUE</code></td><td>Cobrança vencida</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2>Payload</h2>
+        <p>Quando o status de uma cobrança muda, enviamos um <strong>POST</strong> para a <code>postback_url</code> informada na criação:</p>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "event": "charge.paid",
+  "charge": {
+    "id": "d62327ae-c73d-4bfb-947d-8e79f7d61139",
+    "status": "RECEIVED",
+    "billing_type": "PIX",
+    "value": 99.90,
+    "net_value": 93.91,
+    "description": "Produto Premium",
+    "external_reference": "PEDIDO-123",
+    "payment_date": "2026-01-20T13:05:00.000Z"
+  },
+  "timestamp": "2026-01-20T13:05:00.694Z"
+}</code></pre>
+        </div>
+
+        <h2>Campos do objeto <code>charge</code></h2>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Campo</th>
+                <th>Tipo</th>
+                <th>Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>id</code></td><td>string (UUID)</td><td>ID da cobrança na ZucroPay</td></tr>
+              <tr><td><code>status</code></td><td>string</td><td>Status atual: <code>RECEIVED</code>, <code>PENDING</code>, <code>REFUNDED</code>, <code>CANCELLED</code>, <code>REFUSED</code>, <code>OVERDUE</code></td></tr>
+              <tr><td><code>billing_type</code></td><td>string</td><td>Tipo de pagamento: <code>PIX</code>, <code>CREDIT_CARD</code>, <code>BOLETO</code></td></tr>
+              <tr><td><code>value</code></td><td>number</td><td>Valor bruto da cobrança em reais (ex: 99.90)</td></tr>
+              <tr><td><code>net_value</code></td><td>number | null</td><td>Valor líquido (após taxas) em reais</td></tr>
+              <tr><td><code>description</code></td><td>string</td><td>Descrição da cobrança</td></tr>
+              <tr><td><code>external_reference</code></td><td>string | null</td><td>Referência externa informada na criação</td></tr>
+              <tr><td><code>payment_date</code></td><td>string | null</td><td>Data/hora do pagamento (ISO 8601). <code>null</code> se ainda não pago</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2>Headers enviados</h2>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Header</th>
+                <th>Valor</th>
+                <th>Descrição</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>Content-Type</code></td><td><code>application/json</code></td><td>Formato do body</td></tr>
+              <tr><td><code>X-ZucroPay-Event</code></td><td><code>charge.paid</code></td><td>Nome do evento que disparou o postback</td></tr>
+              <tr><td><code>User-Agent</code></td><td><code>ZucroPay-Webhook/1.0</code></td><td>Identificação do remetente</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2>Ciclo de Vida dos Status</h2>
+        <div class="code-block">
+          <pre><code class="language-text">Cobrança criada
+    │
+    ▼
+  PENDING ──────► RECEIVED (pago)
+    │                │
+    │                ▼
+    │            REFUNDED (estornado)
+    │
+    ├──────► CANCELLED (cancelado)
+    ├──────► REFUSED (recusado)
+    └──────► OVERDUE (vencido)</code></pre>
+        </div>
+
+        <h2>Exemplos de Payload</h2>
+
+        <h3>Cobrança Paga</h3>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "event": "charge.paid",
+  "charge": {
+    "id": "d62327ae-c73d-4bfb-947d-8e79f7d61139",
+    "status": "RECEIVED",
+    "billing_type": "PIX",
+    "value": 81.13,
+    "net_value": 76.08,
+    "description": "Compra na loja Example",
+    "external_reference": "4910125",
+    "payment_date": "2026-03-26T18:00:29.000Z"
+  },
+  "timestamp": "2026-03-26T18:00:29.694Z"
+}</code></pre>
+        </div>
+
+        <h3>Cobrança Estornada</h3>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "event": "charge.refunded",
+  "charge": {
+    "id": "d62327ae-c73d-4bfb-947d-8e79f7d61139",
+    "status": "REFUNDED",
+    "billing_type": "PIX",
+    "value": 81.13,
+    "net_value": 76.08,
+    "description": "Compra na loja Example",
+    "external_reference": "4910125",
+    "payment_date": "2026-03-26T18:00:29.000Z"
+  },
+  "timestamp": "2026-03-27T10:15:00.000Z"
+}</code></pre>
+        </div>
+
+        <h3>Cobrança Cancelada</h3>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "event": "charge.cancelled",
+  "charge": {
+    "id": "d62327ae-c73d-4bfb-947d-8e79f7d61139",
+    "status": "CANCELLED",
+    "billing_type": "PIX",
+    "value": 81.13,
+    "net_value": 76.08,
+    "description": "Compra na loja Example",
+    "external_reference": "4910125",
+    "payment_date": null
+  },
+  "timestamp": "2026-03-27T12:00:00.000Z"
+}</code></pre>
+        </div>
+
+        <h2>Implementando o Postback</h2>
+        <div class="code-tabs">
+          <div class="code-tab-buttons">
+            <button class="code-tab-btn active" data-tab="postback-node">Node.js</button>
+            <button class="code-tab-btn" data-tab="postback-php">PHP</button>
+            <button class="code-tab-btn" data-tab="postback-python">Python</button>
+          </div>
+          <div class="code-tab-content active" data-tab="postback-node">
+            <div class="code-block">
+              <pre><code class="language-javascript">const express = require('express');
+const app = express();
+
+app.use(express.json());
+
+app.post('/postback', (req, res) => {
+  const { event, charge, timestamp } = req.body;
+
+  switch (event) {
+    case 'charge.paid':
+      console.log(`Cobranca ${charge.id} paga!`);
+      console.log(`Valor: R$${charge.value} | Liquido: R$${charge.net_value}`);
+      console.log(`Referencia: ${charge.external_reference}`);
+      // Liberar produto, enviar email, etc.
+      liberarProduto(charge.external_reference);
+      break;
+
+    case 'charge.refunded':
+      console.log(`Cobranca ${charge.id} estornada!`);
+      revogarAcesso(charge.external_reference);
+      break;
+
+    case 'charge.cancelled':
+      console.log(`Cobranca ${charge.id} cancelada`);
+      break;
+
+    case 'charge.refused':
+      console.log(`Cobranca ${charge.id} recusada`);
+      break;
+  }
+
+  // IMPORTANTE: Sempre retorne 200
+  res.status(200).send('OK');
+});
+
+app.listen(3000);</code></pre>
+              <button class="copy-btn">Copiar</button>
+            </div>
+          </div>
+          <div class="code-tab-content" data-tab="postback-php">
+            <div class="code-block">
+              <pre><code class="language-php">&lt;?php
+// postback.php
+
+$payload = file_get_contents('php://input');
+$data = json_decode($payload, true);
+
+$event = $data['event'];
+$charge = $data['charge'];
+
+switch ($event) {
+    case 'charge.paid':
+        // Cobranca confirmada
+        echo "Cobranca {$charge['id']} paga - R\${$charge['value']}";
+        liberarProduto($charge['external_reference']);
+        break;
+
+    case 'charge.refunded':
+        revogarAcesso($charge['external_reference']);
+        break;
+
+    case 'charge.cancelled':
+    case 'charge.refused':
+        // Tratar cobranca cancelada/recusada
+        break;
+}
+
+// IMPORTANTE: Sempre retorne 200
+http_response_code(200);
+echo json_encode(['received' => true]);</code></pre>
+              <button class="copy-btn">Copiar</button>
+            </div>
+          </div>
+          <div class="code-tab-content" data-tab="postback-python">
+            <div class="code-block">
+              <pre><code class="language-python">from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+@app.route('/postback', methods=['POST'])
+def postback():
+    data = request.json
+    event = data.get('event')
+    charge = data.get('charge')
+
+    if event == 'charge.paid':
+        print(f"Cobranca {charge['id']} paga!")
+        print(f"Valor: R${charge['value']} | Liquido: R${charge['net_value']}")
+        liberar_produto(charge['external_reference'])
+
+    elif event == 'charge.refunded':
+        print(f"Cobranca {charge['id']} estornada!")
+        revogar_acesso(charge['external_reference'])
+
+    elif event == 'charge.cancelled':
+        print(f"Cobranca {charge['id']} cancelada")
+
+    elif event == 'charge.refused':
+        print(f"Cobranca {charge['id']} recusada")
+
+    # IMPORTANTE: Sempre retorne 200
+    return jsonify({'received': True}), 200
+
+if __name__ == '__main__':
+    app.run(port=5000)</code></pre>
+              <button class="copy-btn">Copiar</button>
+            </div>
+          </div>
+        </div>
+
+        <h2>Boas Práticas</h2>
+        <div class="accordion">
+          <div class="accordion-item">
+            <button class="accordion-header">
+              <span>Responda com HTTP 200</span>
+              <svg class="accordion-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6,9 12,15 18,9"></polyline>
+              </svg>
+            </button>
+            <div class="accordion-content">
+              <p>Seu endpoint deve responder em até <strong>30 segundos</strong> com status <code>200</code>. Se precisar fazer processamento demorado, salve o evento e processe em background.</p>
+            </div>
+          </div>
+          <div class="accordion-item">
+            <button class="accordion-header">
+              <span>Seja idempotente</span>
+              <svg class="accordion-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6,9 12,15 18,9"></polyline>
+              </svg>
+            </button>
+            <div class="accordion-content">
+              <p>Podemos reenviar postbacks em caso de falha. Seu código deve ser capaz de processar o mesmo evento múltiplas vezes sem duplicar ações. Use o <code>charge.id</code> para controlar duplicatas.</p>
+            </div>
+          </div>
+          <div class="accordion-item">
+            <button class="accordion-header">
+              <span>Use o campo <code>event</code> para definir a ação</span>
+              <svg class="accordion-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6,9 12,15 18,9"></polyline>
+              </svg>
+            </button>
+            <div class="accordion-content">
+              <p>O campo <code>event</code> é a fonte principal para identificar o que aconteceu. Use <code>charge.paid</code> para liberar produto, <code>charge.refunded</code> para reverter acesso, etc.</p>
+            </div>
+          </div>
         </div>
       </section>
 
