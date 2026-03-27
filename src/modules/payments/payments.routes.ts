@@ -234,15 +234,6 @@ export async function paymentsRoutes(app: FastifyInstance) {
       const description = link.product?.name || link.name || 'Pagamento ZucroPay';
       let appliedCoupon: any = null;
 
-      // Validar valor máximo
-      if (baseValue > 1000) {
-        return reply.status(400).send({
-          success: false,
-          message: 'O valor máximo por transação é R$ 1.000,00',
-          error: 'Valor acima do limite permitido',
-        });
-      }
-
       // Aplicar cupom de desconto se informado
       if (body.couponCode) {
         const coupon = await prisma.coupon.findUnique({

@@ -21,7 +21,7 @@ import { notifySalePending } from '../push/push.service';
 // Schemas de validação
 const createChargeSchema = z.object({
   billing_type: z.enum(['PIX', 'CREDIT_CARD', 'BOLETO', 'UNDEFINED']),
-  value: z.number().positive().max(1000, { message: 'O valor máximo da cobrança é R$ 1.000,00' }),
+  value: z.number().positive(),
   description: z.string().optional(),
   due_date: z.string().optional(),
   customer: z.object({
