@@ -401,6 +401,13 @@ export const applyProviderRateOverrides = (
       fixed_fee: 2.50,
     };
   }
+  if (provider === 'eusouzucropay' && !hasCustomRates) {
+    return {
+      ...rates,
+      pix_rate: 4.99,
+      fixed_fee: 2.50,
+    };
+  }
   return rates;
 };
 
