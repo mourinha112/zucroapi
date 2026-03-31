@@ -892,6 +892,11 @@ export async function webhooksRoutes(app: FastifyInstance) {
   });
 
   // ========== Webhook do EuSouZucroPay ==========
+  app.get('/eusouzucropay', async (request, reply) => {
+    console.log('[WEBHOOK] GET /eusouzucropay - validação do EuSouZucroPay');
+    return reply.send({ success: true, message: 'Webhook EuSouZucroPay ativo' });
+  });
+
   app.post('/eusouzucropay', {
     preHandler: [webhookRateLimit],
   }, async (request, reply) => {
