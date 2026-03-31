@@ -378,6 +378,13 @@ export async function adminRoutes(app: FastifyInstance) {
             pixKey: withdrawal.pix_key!,
             pixKeyType: withdrawal.pix_key_type || 'cpf',
           });
+        } else if (providerName === 'eusouzucropay') {
+          const { createEuSouZucroPayPixTransfer } = await import('../../providers/eusouzucropay/eusouzucropay.pix');
+          pixResult = await createEuSouZucroPayPixTransfer({
+            value: Number(withdrawal.amount),
+            pixKey: withdrawal.pix_key!,
+            pixKeyType: withdrawal.pix_key_type || 'cpf',
+          });
         } else {
           const { createSharkPixTransfer } = await import('../../providers/sharkbanking/shark.pix');
           pixResult = await createSharkPixTransfer({
@@ -576,12 +583,12 @@ export async function adminRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const currentUser = request.currentUser!;
     const { id } = request.params as { id: string };
-    const body = request.body as { provider: 'efibank' | 'asaas' | 'enki' };
+    const body = request.body as { provider: 'efibank' | 'asaas' | 'enki' | 'eusouzucropay' };
 
-    if (!['efibank', 'asaas', 'enki'].includes(body.provider)) {
+    if (!['efibank', 'asaas', 'enki', 'eusouzucropay'].includes(body.provider)) {
       return reply.status(400).send({
         success: false,
-        error: 'Provedor inválido. Use "efibank", "asaas" ou "enki".',
+        error: 'Provedor inválido. Use "efibank", "asaas", "enki" ou "eusouzucropay".',
       });
     }
 

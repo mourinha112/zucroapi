@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../../config/database';
 import { createSharkPixCharge } from '../../providers/sharkbanking/shark.pix';
 import { createEnkiPixCharge } from '../../providers/enki/enki.pix';
+import { createEuSouZucroPayPixCharge } from '../../providers/eusouzucropay/eusouzucropay.pix';
 import {
   getEffectiveRates,
   calculatePixFeeSellerPays,
@@ -307,6 +308,16 @@ export async function paymentsRoutes(app: FastifyInstance) {
           customerPhone: body.customerPhone,
           externalRef: `zp_${link.id}_${Date.now()}`,
         });
+      } else if (sellerProvider === 'eusouzucropay') {
+        chargeResult = await createEuSouZucroPayPixCharge({
+          value: baseValue,
+          description,
+          customerName: body.customerName,
+          customerEmail: body.customerEmail,
+          customerCpf: body.customerCpfCnpj,
+          customerPhone: body.customerPhone,
+          externalRef: `zp_${link.id}_${Date.now()}`,
+        });
       } else {
         chargeResult = await createSharkPixCharge({
           value: baseValue,
@@ -359,6 +370,8 @@ export async function paymentsRoutes(app: FastifyInstance) {
             payment_provider: sellerProvider,
             ...(sellerProvider === 'enki'
               ? { enki_transaction_id: chargeResult.transactionId }
+              : sellerProvider === 'eusouzucropay'
+              ? { eusouzucropay_transaction_id: chargeResult.transactionId }
               : { shark_transaction_id: chargeResult.transactionId }),
             customer_ip: clientIp,
             customer_name: body.customerName,

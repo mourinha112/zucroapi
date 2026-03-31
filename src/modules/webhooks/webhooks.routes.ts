@@ -891,6 +891,237 @@ export async function webhooksRoutes(app: FastifyInstance) {
     return reply.send({ received: true });
   });
 
+  // ========== Webhook do EuSouZucroPay ==========
+  app.post('/eusouzucropay', {
+    preHandler: [webhookRateLimit],
+  }, async (request, reply) => {
+    const body = request.body as any;
+
+    console.log('[WEBHOOK] ========== EuSouZucroPay Webhook ==========');
+    console.log('[WEBHOOK] Event:', body.event);
+    console.log('[WEBHOOK] Body:', JSON.stringify(body, null, 2));
+
+    const event = body.event;
+
+    // ===== Webhook de transação =====
+    if (event?.startsWith('transaction.') && body.transaction) {
+      const transactionData = body.transaction;
+      const eusouzucropayTransactionId = String(transactionData.id);
+
+      // Buscar pagamento pelo eusouzucropay_transaction_id (armazenado no efi_txid)
+      const payment = await prisma.payment.findFirst({
+        where: { efi_txid: eusouzucropayTransactionId },
+        include: { user: true },
+      });
+
+      if (!payment) {
+        console.log(`[WEBHOOK] Pagamento EuSouZucroPay não encontrado: ${eusouzucropayTransactionId}`);
+        return reply.send({ received: true });
+      }
+
+      let newStatus = payment.status;
+
+      // Mapeamento de status EuSouZucroPay → ZucroPay
+      if (transactionData.status === 'PAID' || transactionData.status === 'APPROVED') {
+        newStatus = 'RECEIVED';
+      } else if (transactionData.status === 'WAITING_PAYMENT' || transactionData.status === 'PENDING') {
+        newStatus = 'PENDING';
+      } else if (transactionData.status === 'REFUSED') {
+        newStatus = 'REFUSED';
+      } else if (transactionData.status === 'REFUNDED') {
+        newStatus = 'REFUNDED';
+      } else if (transactionData.status === 'CANCELLED') {
+        newStatus = 'CANCELLED';
+      } else if (transactionData.status === 'CHARGEBACK' || transactionData.status === 'IN_PROTEST') {
+        newStatus = 'REFUNDED';
+      }
+
+      // Se já está RECEIVED, ignorar (proteção contra reprocessamento)
+      if (payment.status === 'RECEIVED') {
+        console.log(`[WEBHOOK] EuSouZucroPay ${eusouzucropayTransactionId} já está RECEIVED, ignorando`);
+        return reply.send({ received: true });
+      }
+
+      if (newStatus !== payment.status) {
+        // UPDATE atômico: só atualiza se status ainda não mudou (previne race condition)
+        if (newStatus === 'RECEIVED') {
+          const updated = await prisma.$executeRaw`
+            UPDATE payments SET status = 'RECEIVED', payment_date = NOW(), updated_at = NOW()
+            WHERE id = ${payment.id}::uuid AND status != 'RECEIVED'
+          `;
+
+          if (updated === 0) {
+            console.log(`[WEBHOOK] Payment ${payment.id} já foi processado por outro webhook, ignorando`);
+            return reply.send({ received: true });
+          }
+        } else {
+          await prisma.payment.update({
+            where: { id: payment.id },
+            data: {
+              status: newStatus,
+              payment_date: newStatus === 'RECEIVED' ? new Date() : payment.payment_date,
+            },
+          });
+        }
+
+        console.log(`[WEBHOOK] EuSouZucroPay ${eusouzucropayTransactionId} atualizado: ${newStatus}`);
+
+        // Enviar postback com status atualizado
+        const eusouzucropayEventMap: Record<string, string> = {
+          'RECEIVED': 'charge.paid',
+          'REFUNDED': 'charge.refunded',
+          'CANCELLED': 'charge.cancelled',
+          'REFUSED': 'charge.refused',
+          'PENDING': 'charge.pending',
+        };
+        const updatedEuSouZucroPayPayment = await prisma.payment.findUnique({ where: { id: payment.id } });
+        if (updatedEuSouZucroPayPayment) {
+          sendChargePostback(updatedEuSouZucroPayPayment, eusouzucropayEventMap[newStatus] || `charge.${newStatus.toLowerCase()}`);
+        }
+
+        // Se foi pago, processar saldo
+        if (newStatus === 'RECEIVED') {
+          const grossValue = Number(payment.value);
+
+          // Buscar taxas do vendedor
+          const customRates = await prisma.userCustomRate.findUnique({
+            where: { user_id: payment.user_id },
+          });
+
+          const baseRates = await getEffectiveRates(customRates ? {
+            pix_rate: customRates.pix_rate ? Number(customRates.pix_rate) : undefined,
+          } : null);
+
+          // Aplicar taxas EuSouZucroPay (só se seller não tem taxa customizada)
+          const rates = applyProviderRateOverrides(baseRates, 'eusouzucropay', !!customRates?.pix_rate);
+          const feeCalc = calculatePixFeeSellerPays(grossValue, rates);
+
+          // Atualizar net_value no pagamento
+          await prisma.payment.update({
+            where: { id: payment.id },
+            data: {
+              net_value: feeCalc.netValue,
+              metadata: JSON.parse(JSON.stringify({
+                ...(payment.metadata as any),
+                platform_fee: feeCalc.platformFee,
+                reserve_amount: feeCalc.reserveAmount,
+                provider: 'eusouzucropay',
+              })),
+            },
+          });
+
+          // Atualizar saldo do seller
+          await prisma.user.update({
+            where: { id: payment.user_id },
+            data: {
+              balance: { increment: feeCalc.netValue },
+              reserved_balance: { increment: feeCalc.reserveAmount },
+            },
+          });
+
+          // Criar reserva de segurança (5%)
+          await prisma.balanceReserve.create({
+            data: {
+              user_id: payment.user_id,
+              payment_id: payment.id,
+              original_amount: grossValue,
+              reserve_amount: feeCalc.reserveAmount,
+              status: 'held',
+              release_date: calculateReleaseDate(rates.reserve_days),
+              description: `Reserva 5% - ${payment.description}`,
+            },
+          });
+
+          // Criar transação
+          await prisma.transaction.create({
+            data: {
+              user_id: payment.user_id,
+              type: 'deposit',
+              amount: feeCalc.netValue,
+              status: 'completed',
+              description: `PIX recebido (EuSouZucroPay) - ${payment.description}`,
+              metadata: {
+                eusouzucropay_transaction_id: eusouzucropayTransactionId,
+                payment_id: payment.id,
+                billing_type: 'PIX',
+                gross_value: grossValue,
+                platform_fee: feeCalc.platformFee,
+                reserve_amount: feeCalc.reserveAmount,
+              },
+            },
+          });
+
+          // Atualizar link de pagamento
+          if (payment.payment_link_id) {
+            await prisma.paymentLink.update({
+              where: { id: payment.payment_link_id },
+              data: { total_received: { increment: grossValue } },
+            });
+          }
+
+          console.log(`[WEBHOOK] EuSouZucroPay pagamento processado: ${payment.id} - R$${feeCalc.netValue.toFixed(2)} líquido`);
+
+          // Notificação push
+          try {
+            const customerName = transactionData.customer?.name || 'Cliente';
+            await notifySale(payment.user_id, grossValue, customerName, payment.id);
+          } catch (pushError) {
+            console.error('[WEBHOOK] Erro push:', pushError);
+          }
+
+          // Postback para webhooks do seller
+          try {
+            await sendUserWebhook(payment.user_id, 'payment.received', {
+              payment_id: payment.id,
+              value: grossValue,
+              net_value: feeCalc.netValue,
+              status: 'RECEIVED',
+              billing_type: 'PIX',
+              provider: 'eusouzucropay',
+            });
+          } catch (webhookError) {
+            console.error('[WEBHOOK] Erro postback:', webhookError);
+          }
+
+          // Postback para UTMify (se configurado)
+          try {
+            const metadata = payment.metadata as any;
+            await sendUtmifyPostback({
+              paymentId: payment.id,
+              sellerId: payment.user_id,
+              value: grossValue,
+              netValue: feeCalc.netValue,
+              platformFee: feeCalc.platformFee,
+              status: 'paid',
+              customerName: metadata?.customer_name || transactionData.customer?.name || 'Cliente',
+              customerEmail: metadata?.customer_email || transactionData.customer?.email || '',
+              customerPhone: metadata?.customer_phone || undefined,
+              customerDocument: metadata?.customer_document || undefined,
+              productName: payment.description || 'Produto ZucroPay',
+              productId: payment.payment_link_id || undefined,
+              createdAt: payment.created_at.toISOString().replace('T', ' ').substring(0, 19),
+              approvedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+            });
+          } catch (utmifyError) {
+            console.error('[WEBHOOK] Erro UTMify postback:', utmifyError);
+          }
+        }
+
+        // Se pendente, enviar notificação de venda pendente
+        if (newStatus === 'PENDING') {
+          try {
+            await notifySalePending(payment.user_id, Number(payment.value), payment.id);
+          } catch (pushError) {
+            console.error('[WEBHOOK] Erro push venda pendente:', pushError);
+          }
+        }
+      }
+    }
+
+    console.log('[WEBHOOK] ========================================');
+    return reply.send({ received: true });
+  });
+
   // Listar webhooks do usuário (autenticado)
   app.get('/', {
     preHandler: [standardRateLimit, authenticate],

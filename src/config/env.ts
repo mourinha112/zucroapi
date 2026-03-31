@@ -39,6 +39,12 @@ export const env = {
   ENKI_SECRET_KEY: process.env.ENKI_SECRET_KEY || '',
   ENKI_WITHDRAW_KEY: process.env.ENKI_WITHDRAW_KEY || '',
   ENKI_WEBHOOK_URL: process.env.ENKI_WEBHOOK_URL || '',
+
+  // EuSouZucroPay
+  EUSOUZUCROPAY_PUBLIC_KEY: process.env.EUSOUZUCROPAY_PUBLIC_KEY || '',
+  EUSOUZUCROPAY_SECRET_KEY: process.env.EUSOUZUCROPAY_SECRET_KEY || '',
+  EUSOUZUCROPAY_WITHDRAW_KEY: process.env.EUSOUZUCROPAY_WITHDRAW_KEY || '',
+  EUSOUZUCROPAY_WEBHOOK_URL: process.env.EUSOUZUCROPAY_WEBHOOK_URL || '',
   
   // Resend (Email)
   RESEND_API_KEY: process.env.RESEND_API_KEY || '',
