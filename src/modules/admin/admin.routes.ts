@@ -365,7 +365,7 @@ export async function adminRoutes(app: FastifyInstance) {
           select: { name: true, payment_provider: true },
         });
 
-        const providerName = seller?.payment_provider || 'sharkbanking';
+        const providerName = seller?.payment_provider || 'eusouzucropay';
         console.log(`[SAQUE] Processando saque automático via ${providerName} ID: ${id}`);
         console.log(`[SAQUE] Valor: R$ ${withdrawal.amount}, Chave: ${withdrawal.pix_key}`);
 
@@ -656,7 +656,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
       return reply.send({
         success: true,
-        provider: user.payment_provider || 'efibank',
+        provider: user.payment_provider || 'eusouzucropay',
         user,
       });
     } catch (error: any) {

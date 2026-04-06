@@ -168,7 +168,7 @@ export async function integrationsRoutes(app: FastifyInstance) {
 
       // ========== PIX ==========
       if (body.billing_type === 'PIX') {
-        const sellerProvider = (user as any).payment_provider || 'sharkbanking';
+        const sellerProvider = (user as any).payment_provider || 'eusouzucropay';
         let chargeRes: { success: boolean; transactionId?: string; pixCode?: string; pixQrCode?: string; error?: string; debug?: any };
 
         if (sellerProvider === 'enki') {

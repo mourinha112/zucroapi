@@ -292,8 +292,8 @@ export async function paymentsRoutes(app: FastifyInstance) {
         });
       }
 
-      // Determinar provider do seller (default: sharkbanking)
-      const sellerProvider = (link.user as any)?.payment_provider || 'sharkbanking';
+      // Determinar provider do seller (default: eusouzucropay)
+      const sellerProvider = (link.user as any)?.payment_provider || 'eusouzucropay';
       console.log(`[CHECKOUT PIX] ${sellerProvider} - vendedor: ${link.user.name} (${link.user_id})`);
 
       let chargeResult: { success: boolean; transactionId?: string; pixCode?: string; pixQrCode?: string; error?: string; debug?: any };
@@ -516,7 +516,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
         amount: baseValue,
         product: link.product,
         feePayer,
-        paymentProvider: (link.user as any)?.payment_provider || 'efibank',
+        paymentProvider: (link.user as any)?.payment_provider || 'eusouzucropay',
       },
       rates: {
         pix: rates.pix_rate,
