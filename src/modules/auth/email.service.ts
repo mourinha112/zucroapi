@@ -52,3 +52,59 @@ export async function sendLoginCode(email: string, code: string, userName: strin
     return false;
   }
 }
+
+export async function sendAccountApprovedEmail(email: string, userName: string): Promise<boolean> {
+  try {
+    const { error } = await resend.emails.send({
+      from: 'ZucroPay <noreply@appzucropay.com>',
+      to: email,
+      subject: 'Sua conta ZucroPay foi aprovada! 🎉',
+      html: `
+        <div style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 0;">
+          <div style="background: linear-gradient(135deg, #5818C8 0%, #380F7F 100%); padding: 40px 32px; text-align: center; border-radius: 16px 16px 0 0;">
+            <img src="https://dashboard.appzucropay.com/logotipo.webp" alt="ZucroPay" style="height: 40px; margin-bottom: 16px;" />
+            <h1 style="color: #ffffff; font-size: 22px; font-weight: 700; margin: 0;">Conta Aprovada</h1>
+          </div>
+          <div style="background: #ffffff; padding: 40px 32px; border: 1px solid #e5e7eb; border-top: none;">
+            <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 16px;">
+              Olá <strong>${userName}</strong>,
+            </p>
+            <p style="color: #374151; font-size: 15px; line-height: 1.6; margin: 0 0 24px;">
+              Boas notícias! Sua conta na <strong>ZucroPay</strong> foi <strong style="color: #16a34a;">aprovada</strong> e já está liberada para uso. Agora você pode acessar todos os recursos da plataforma, criar produtos, receber pagamentos e solicitar saques.
+            </p>
+            <div style="background: #f0fdf4; border: 2px solid #22c55e; border-radius: 12px; padding: 20px; text-align: center; margin: 0 0 24px;">
+              <span style="font-size: 18px; font-weight: 700; color: #16a34a;">
+                ✓ Conta verificada e liberada
+              </span>
+            </div>
+            <div style="text-align: center; margin: 0 0 24px;">
+              <a href="https://dashboard.appzucropay.com/login" style="display: inline-block; background: linear-gradient(135deg, #5818C8 0%, #380F7F 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 10px; font-weight: 600; font-size: 15px;">
+                Acessar minha conta
+              </a>
+            </div>
+            <p style="color: #6b7280; font-size: 13px; line-height: 1.5; margin: 0;">
+              Se tiver qualquer dúvida, basta responder este email — nossa equipe está pronta para te ajudar.
+            </p>
+          </div>
+          <div style="padding: 20px 32px; text-align: center; border-radius: 0 0 16px 16px; background: #f9fafb; border: 1px solid #e5e7eb; border-top: none;">
+            <img src="https://dashboard.appzucropay.com/logotipo.png" alt="ZucroPay" style="height: 28px; margin-bottom: 8px;" />
+            <p style="color: #9ca3af; font-size: 11px; margin: 0;">
+              &copy; 2026 ZucroPay. Todos os direitos reservados.
+            </p>
+          </div>
+        </div>
+      `,
+    });
+
+    if (error) {
+      console.error('[Email] Erro ao enviar aprovação:', error);
+      return false;
+    }
+
+    console.log(`[Email] Aprovação enviada para ${email}`);
+    return true;
+  } catch (err: any) {
+    console.error('[Email] Erro:', err.message);
+    return false;
+  }
+}

@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../config/database';
 import { authenticateAdmin, standardRateLimit, sensitiveActionRateLimit } from '../../middlewares';
 import { notifyWithdrawalApproved, notifyWithdrawalRejected } from '../push/push.service';
+import { sendAccountApprovedEmail } from '../auth/email.service';
 
 export async function adminRoutes(app: FastifyInstance) {
   // Dashboard stats com GMV, Lucro e dados para gráficos
@@ -301,6 +302,13 @@ export async function adminRoutes(app: FastifyInstance) {
         details: { status: body.status, reason: body.reason },
       },
     });
+
+    // Enviar email de confirmação quando a conta é aprovada
+    if ((body.status === 'approved' || body.status === 'active') && user.email) {
+      sendAccountApprovedEmail(user.email, user.name || 'Cliente').catch((err) => {
+        console.error('[admin/users/status] Falha ao enviar email de aprovação:', err);
+      });
+    }
 
     return reply.send({ success: true, user });
   });
@@ -786,7 +794,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
     // Atualizar status do usuário
     // Se aprovado, também atualizar account_status para 'active'
-    await prisma.user.update({
+    const updatedUser = await prisma.user.update({
       where: { id: verification.user_id },
       data: {
         verification_status: status,
@@ -807,6 +815,13 @@ export async function adminRoutes(app: FastifyInstance) {
         details: { status, reason },
       },
     });
+
+    // Enviar email de confirmação quando a verificação é aprovada
+    if (status === 'approved' && updatedUser.email) {
+      sendAccountApprovedEmail(updatedUser.email, updatedUser.name || 'Cliente').catch((err) => {
+        console.error('[admin/verifications/approve] Falha ao enviar email de aprovação:', err);
+      });
+    }
 
     return verification;
   };
