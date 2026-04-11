@@ -69,6 +69,8 @@ model User {
   coupons                Coupon[]
   app_integrations       AppIntegration[]
   login_codes            LoginCode[]
+  received_splits        PaymentSplit[]      @relation("SplitRecipient")
+  product_split_rules    ProductSplitRule[]  @relation("SplitRuleRecipient")
 
   @@map("users")
 }
@@ -111,6 +113,7 @@ model Product {
   order_bumps           OrderBump[]             @relation("OrderBumpMainProduct")
   offer_order_bumps     OrderBump[]             @relation("OrderBumpOfferProduct")
   coupons               Coupon[]
+  split_rules           ProductSplitRule[]
 
   @@map("products")
 }
@@ -179,6 +182,7 @@ model Payment {
   metadata        Json      @default("{}")
   payment_link_id String?   @db.Uuid
   subscription_id String?   @db.Uuid // Vinculo com assinatura
+  has_split       Boolean   @default(false)
   created_at      DateTime  @default(now()) @db.Timestamptz
   updated_at      DateTime  @default(now()) @db.Timestamptz
 
@@ -187,8 +191,53 @@ model Payment {
   chargebacks  Chargeback[]
   subscription_payments SubscriptionPayment[]
   subscription  Subscription?  @relation("PaymentSubscription", fields: [subscription_id], references: [id])
+  splits        PaymentSplit[]
 
   @@map("payments")
+}
+
+// ============================================
+// PAYMENT SPLITS - Divisão automática de pagamento
+// ============================================
+
+model PaymentSplit {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  payment_id     String   @db.Uuid
+  recipient_id   String   @db.Uuid
+  type           String   @db.VarChar(10) // "amount" | "percent"
+  amount         Decimal? @db.Decimal(10, 2) // valor fixo em R$ (quando type='amount')
+  percent        Decimal? @db.Decimal(5, 2)  // 0-100 (quando type='percent')
+  computed_value Decimal? @db.Decimal(10, 2) // valor real creditado no webhook
+  status         String   @default("pending") @db.VarChar(20) // pending | credited | reversed
+  description    String?
+  credited_at    DateTime? @db.Timestamptz
+  created_at     DateTime  @default(now()) @db.Timestamptz
+
+  payment   Payment @relation(fields: [payment_id], references: [id], onDelete: Cascade)
+  recipient User    @relation("SplitRecipient", fields: [recipient_id], references: [id], onDelete: Cascade)
+
+  @@index([payment_id])
+  @@index([recipient_id])
+  @@map("payment_splits")
+}
+
+model ProductSplitRule {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id   String   @db.Uuid
+  recipient_id String   @db.Uuid
+  type         String   @db.VarChar(10) // "amount" | "percent"
+  amount       Decimal? @db.Decimal(10, 2)
+  percent      Decimal? @db.Decimal(5, 2)
+  description  String?
+  active       Boolean  @default(true)
+  created_at   DateTime @default(now()) @db.Timestamptz
+  updated_at   DateTime @default(now()) @db.Timestamptz
+
+  product   Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  recipient User    @relation("SplitRuleRecipient", fields: [recipient_id], references: [id], onDelete: Cascade)
+
+  @@index([product_id])
+  @@map("product_split_rules")
 }
 
 model PaymentLink {

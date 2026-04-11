@@ -10,7 +10,13 @@ export async function adminRoutes(app: FastifyInstance) {
     preHandler: [standardRateLimit, authenticateAdmin],
   }, async (request, reply) => {
     try {
-      // Queries básicas que devem sempre funcionar
+      // Filtro de datas (opcional): YYYY-MM-DD. Quando ausente, traz tudo.
+      const q = request.query as { start_date?: string; end_date?: string };
+      const startDate = q.start_date ? new Date(q.start_date + 'T00:00:00') : null;
+      const endDate = q.end_date ? new Date(q.end_date + 'T23:59:59.999') : null;
+      const hasRange = !!(startDate && endDate);
+
+      // Queries básicas que não dependem do período (são sempre all-time)
       const [totalUsers, pendingUsers, totalBalance] = await Promise.all([
         prisma.user.count(),
         prisma.user.count({ where: { account_status: 'pending' } }),
@@ -30,15 +36,26 @@ export async function adminRoutes(app: FastifyInstance) {
       let chargebackCount = 0;
 
       try {
-        // Faturamento total baseado nos pagamentos recebidos
-        const paymentStats = await prisma.$queryRaw`
-          SELECT
-            COUNT(*) as count,
-            COALESCE(SUM(value), 0) as total_value,
-            COALESCE(SUM(value - net_value), 0) as total_fees
-          FROM payments
-          WHERE status = 'RECEIVED'
-        ` as any[];
+        // Faturamento total baseado nos pagamentos recebidos (aplica range se houver)
+        const paymentStats: any[] = hasRange
+          ? await prisma.$queryRaw`
+              SELECT
+                COUNT(*) as count,
+                COALESCE(SUM(value), 0) as total_value,
+                COALESCE(SUM(value - net_value), 0) as total_fees
+              FROM payments
+              WHERE status = 'RECEIVED'
+                AND created_at >= ${startDate}
+                AND created_at <= ${endDate}
+            `
+          : await prisma.$queryRaw`
+              SELECT
+                COUNT(*) as count,
+                COALESCE(SUM(value), 0) as total_value,
+                COALESCE(SUM(value - net_value), 0) as total_fees
+              FROM payments
+              WHERE status = 'RECEIVED'
+            `;
 
         const row = paymentStats[0];
         totalPayments = Number(row?.count || 0);
@@ -51,17 +68,24 @@ export async function adminRoutes(app: FastifyInstance) {
 
       try {
         pendingWithdrawals = await prisma.withdrawal.count({ where: { status: 'pending' } });
-        const withdrawalAgg = await prisma.withdrawal.aggregate({ 
+        const withdrawalAgg = await prisma.withdrawal.aggregate({
           where: { status: 'pending' },
-          _sum: { amount: true } 
+          _sum: { amount: true },
         });
         pendingWithdrawalAmount = Number(withdrawalAgg._sum.amount || 0);
-        completedWithdrawals = await prisma.withdrawal.count({ where: { status: 'completed' } });
-        
-        // Total já sacado
+
+        // Saques concluídos no período (se houver range) ou all-time
+        const completedWhere = hasRange
+          ? {
+              status: 'completed',
+              completed_at: { gte: startDate!, lte: endDate! },
+            }
+          : { status: 'completed' };
+
+        completedWithdrawals = await prisma.withdrawal.count({ where: completedWhere });
         const withdrawnAgg = await prisma.withdrawal.aggregate({
-          where: { status: 'completed' },
-          _sum: { amount: true }
+          where: completedWhere,
+          _sum: { amount: true },
         });
         totalWithdrawn = Number(withdrawnAgg._sum?.amount || 0);
       } catch (e) {
@@ -74,22 +98,35 @@ export async function adminRoutes(app: FastifyInstance) {
         console.log('Erro ao buscar verifications:', e);
       }
 
-      // Gráfico de vendas dos últimos 7 dias
+      // Gráfico de vendas: se tem range usa ele, senão cai nos últimos 7 dias
       let salesChartData: any[] = [];
       try {
-        const last7Days = await prisma.$queryRaw`
-          SELECT
-            DATE(created_at) as date,
-            COUNT(*) as count,
-            COALESCE(SUM(value), 0) as total
-          FROM payments
-          WHERE status = 'RECEIVED'
-            AND created_at >= NOW() - INTERVAL '7 days'
-          GROUP BY DATE(created_at)
-          ORDER BY date ASC
-        ` as any[];
+        const chartRows: any[] = hasRange
+          ? await prisma.$queryRaw`
+              SELECT
+                DATE(created_at) as date,
+                COUNT(*) as count,
+                COALESCE(SUM(value), 0) as total
+              FROM payments
+              WHERE status = 'RECEIVED'
+                AND created_at >= ${startDate}
+                AND created_at <= ${endDate}
+              GROUP BY DATE(created_at)
+              ORDER BY date ASC
+            `
+          : await prisma.$queryRaw`
+              SELECT
+                DATE(created_at) as date,
+                COUNT(*) as count,
+                COALESCE(SUM(value), 0) as total
+              FROM payments
+              WHERE status = 'RECEIVED'
+                AND created_at >= NOW() - INTERVAL '7 days'
+              GROUP BY DATE(created_at)
+              ORDER BY date ASC
+            `;
 
-        salesChartData = last7Days.map((d: any) => ({
+        salesChartData = chartRows.map((d: any) => ({
           date: new Date(d.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
           vendas: Number(d.count),
           valor: Number(d.total),
@@ -98,18 +135,30 @@ export async function adminRoutes(app: FastifyInstance) {
         console.log('Erro ao buscar dados do gráfico:', e);
       }
 
-      // Métodos de pagamento
+      // Métodos de pagamento (aplica range se houver)
       let paymentMethodData: any[] = [];
       try {
-        const methodStats = await prisma.$queryRaw`
-          SELECT
-            billing_type,
-            COUNT(*) as count,
-            COALESCE(SUM(value), 0) as total
-          FROM payments
-          WHERE status = 'RECEIVED'
-          GROUP BY billing_type
-        ` as any[];
+        const methodStats: any[] = hasRange
+          ? await prisma.$queryRaw`
+              SELECT
+                billing_type,
+                COUNT(*) as count,
+                COALESCE(SUM(value), 0) as total
+              FROM payments
+              WHERE status = 'RECEIVED'
+                AND created_at >= ${startDate}
+                AND created_at <= ${endDate}
+              GROUP BY billing_type
+            `
+          : await prisma.$queryRaw`
+              SELECT
+                billing_type,
+                COUNT(*) as count,
+                COALESCE(SUM(value), 0) as total
+              FROM payments
+              WHERE status = 'RECEIVED'
+              GROUP BY billing_type
+            `;
 
         paymentMethodData = methodStats.map((m: any) => ({
           name: m.billing_type || 'Outro',
@@ -379,7 +428,14 @@ export async function adminRoutes(app: FastifyInstance) {
 
         let pixResult: { success: boolean; error?: string; debug?: any; endToEndId?: string; transferId?: string; status?: string };
 
-        if (providerName === 'enki') {
+        if (providerName === 'xflow') {
+          const { createXflowPixTransfer } = await import('../../providers/xflow/xflow.pix');
+          pixResult = await createXflowPixTransfer({
+            value: Number(withdrawal.amount),
+            pixKey: withdrawal.pix_key!,
+            pixKeyType: withdrawal.pix_key_type || 'cpf',
+          });
+        } else if (providerName === 'enki') {
           const { createEnkiPixTransfer } = await import('../../providers/enki/enki.pix');
           pixResult = await createEnkiPixTransfer({
             value: Number(withdrawal.amount),
@@ -591,12 +647,14 @@ export async function adminRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const currentUser = request.currentUser!;
     const { id } = request.params as { id: string };
-    const body = request.body as { provider: 'efibank' | 'asaas' | 'enki' | 'eusouzucropay' };
+    const body = request.body as {
+      provider: 'efibank' | 'asaas' | 'enki' | 'eusouzucropay' | 'xflow';
+    };
 
-    if (!['efibank', 'asaas', 'enki', 'eusouzucropay'].includes(body.provider)) {
+    if (!['efibank', 'asaas', 'enki', 'eusouzucropay', 'xflow'].includes(body.provider)) {
       return reply.status(400).send({
         success: false,
-        error: 'Provedor inválido. Use "efibank", "asaas", "enki" ou "eusouzucropay".',
+        error: 'Provedor inválido. Use "efibank", "asaas", "enki", "eusouzucropay" ou "xflow".',
       });
     }
 

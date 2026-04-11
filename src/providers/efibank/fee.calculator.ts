@@ -408,6 +408,15 @@ export const applyProviderRateOverrides = (
       fixed_fee: 2.50,
     };
   }
+  if (provider === 'xflow' && !hasCustomRates) {
+    // XFlow PIX: 1.99% (taxa da própria adquirente segundo doc).
+    // ZucroPay repassa para o seller como 3.99% para ter margem.
+    return {
+      ...rates,
+      pix_rate: 3.99,
+      fixed_fee: 2.50,
+    };
+  }
   return rates;
 };
 

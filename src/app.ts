@@ -16,6 +16,7 @@ import { authRoutes } from './modules/auth/auth.routes';
 import { usersRoutes } from './modules/users/users.routes';
 import { productsRoutes } from './modules/products/products.routes';
 import { paymentsRoutes } from './modules/payments/payments.routes';
+import { splitsRoutes } from './modules/payments/splits.routes';
 import { webhooksRoutes } from './modules/webhooks/webhooks.routes';
 import { withdrawalsRoutes } from './modules/withdrawals/withdrawals.routes';
 import { adminRoutes } from './modules/admin/admin.routes';
@@ -261,6 +262,7 @@ async function bootstrap() {
   app.register(usersRoutes, { prefix: '/api/users' });
   app.register(productsRoutes, { prefix: '/api/products' });
   app.register(paymentsRoutes, { prefix: '/api/payments' });
+  app.register(splitsRoutes, { prefix: '/api/splits' });
   app.register(webhooksRoutes, { prefix: '/api/webhooks' });
   app.register(withdrawalsRoutes, { prefix: '/api/withdrawals' });
   app.register(adminRoutes, { prefix: '/api/admin' });

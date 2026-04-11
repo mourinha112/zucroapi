@@ -45,6 +45,13 @@ export const env = {
   EUSOUZUCROPAY_SECRET_KEY: process.env.EUSOUZUCROPAY_SECRET_KEY || '',
   EUSOUZUCROPAY_WITHDRAW_KEY: process.env.EUSOUZUCROPAY_WITHDRAW_KEY || '',
   EUSOUZUCROPAY_WEBHOOK_URL: process.env.EUSOUZUCROPAY_WEBHOOK_URL || '',
+
+  // XFlow Hub
+  XFLOW_PUBLIC_KEY: process.env.XFLOW_PUBLIC_KEY || '',
+  XFLOW_SECRET_KEY: process.env.XFLOW_SECRET_KEY || '',
+  XFLOW_WITHDRAW_KEY: process.env.XFLOW_WITHDRAW_KEY || '',
+  XFLOW_WEBHOOK_URL: process.env.XFLOW_WEBHOOK_URL || '',
+  XFLOW_CARD_ENABLED: process.env.XFLOW_CARD_ENABLED === 'true',
   
   // Resend (Email)
   RESEND_API_KEY: process.env.RESEND_API_KEY || '',

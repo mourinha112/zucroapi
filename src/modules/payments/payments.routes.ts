@@ -4,6 +4,7 @@ import { prisma } from '../../config/database';
 import { createSharkPixCharge } from '../../providers/sharkbanking/shark.pix';
 import { createEnkiPixCharge } from '../../providers/enki/enki.pix';
 import { createEuSouZucroPayPixCharge } from '../../providers/eusouzucropay/eusouzucropay.pix';
+import { createXflowPixCharge } from '../../providers/xflow/xflow.pix';
 import {
   getEffectiveRates,
   calculatePixFeeSellerPays,
@@ -17,6 +18,12 @@ import {
   createResourceRateLimit
 } from '../../middlewares';
 import { notifySalePending } from '../push/push.service';
+import {
+  SplitInput,
+  loadProductSplitRules,
+  persistPaymentSplits,
+  validateSplits,
+} from './split.service';
 
 export async function paymentsRoutes(app: FastifyInstance) {
   // Listar pagamentos do usuário
@@ -197,6 +204,13 @@ export async function paymentsRoutes(app: FastifyInstance) {
         customerCpfCnpj?: string;
         customerPhone?: string;
         couponCode?: string;
+        split?: Array<{
+          recipient_id: string;
+          type?: 'amount' | 'percent';
+          amount?: number;
+          percent?: number;
+          description?: string;
+        }>;
       };
 
       // Capturar IP do cliente
@@ -292,13 +306,53 @@ export async function paymentsRoutes(app: FastifyInstance) {
         });
       }
 
+      // ===== SPLIT: resolver regras fixas do produto + splits dinâmicos =====
+      // Valida antes de chamar o provider para não criar cobrança no gateway e depois abortar.
+      const productRules = await loadProductSplitRules(link.id);
+      const dynamicSplits: SplitInput[] = (body.split || []).map((s) => ({
+        recipient_id: s.recipient_id,
+        type: s.type || (s.percent != null ? 'percent' : 'amount'),
+        amount: s.amount,
+        percent: s.percent,
+        description: s.description ?? null,
+      }));
+
+      // Merge: regra fixa do produto + dinâmica da request (dinâmica sobrescreve por recipient).
+      const mergedMap = new Map<string, SplitInput>();
+      for (const r of productRules) mergedMap.set(r.recipient_id, r);
+      for (const r of dynamicSplits) mergedMap.set(r.recipient_id, r);
+      const mergedSplits = Array.from(mergedMap.values());
+
+      let splitsToPersist: SplitInput[] = [];
+      if (mergedSplits.length > 0) {
+        const validation = await validateSplits(mergedSplits, baseValue, link.user_id);
+        if ('error' in validation) {
+          return reply.status(400).send({
+            success: false,
+            message: validation.error,
+            error: validation.error,
+          });
+        }
+        splitsToPersist = validation.normalized;
+      }
+
       // Determinar provider do seller (default: eusouzucropay)
       const sellerProvider = (link.user as any)?.payment_provider || 'eusouzucropay';
       console.log(`[CHECKOUT PIX] ${sellerProvider} - vendedor: ${link.user.name} (${link.user_id})`);
 
       let chargeResult: { success: boolean; transactionId?: string; pixCode?: string; pixQrCode?: string; error?: string; debug?: any };
 
-      if (sellerProvider === 'enki') {
+      if (sellerProvider === 'xflow') {
+        chargeResult = await createXflowPixCharge({
+          value: baseValue,
+          description,
+          customerName: body.customerName,
+          customerEmail: body.customerEmail,
+          customerCpf: body.customerCpfCnpj,
+          customerPhone: body.customerPhone,
+          externalRef: `zp_${link.id}_${Date.now()}`,
+        });
+      } else if (sellerProvider === 'enki') {
         chargeResult = await createEnkiPixCharge({
           value: baseValue,
           description,
@@ -368,7 +422,9 @@ export async function paymentsRoutes(app: FastifyInstance) {
             fee_payer: 'seller',
             seller_rates: rates,
             payment_provider: sellerProvider,
-            ...(sellerProvider === 'enki'
+            ...(sellerProvider === 'xflow'
+              ? { xflow_transaction_id: chargeResult.transactionId }
+              : sellerProvider === 'enki'
               ? { enki_transaction_id: chargeResult.transactionId }
               : sellerProvider === 'eusouzucropay'
               ? { eusouzucropay_transaction_id: chargeResult.transactionId }
@@ -386,6 +442,11 @@ export async function paymentsRoutes(app: FastifyInstance) {
           })),
         },
       });
+
+      // Persistir splits (se houver) e marcar payment.has_split = true
+      if (splitsToPersist.length > 0) {
+        await persistPaymentSplits(savedPayment.id, splitsToPersist);
+      }
 
       await prisma.paymentLink.update({
         where: { id: link.id },

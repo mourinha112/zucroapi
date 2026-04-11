@@ -11,6 +11,8 @@ import {
   calculateReleaseDate,
   applyProviderRateOverrides,
 } from '../../providers/efibank/fee.calculator';
+import { creditPaymentOnReceive } from '../payments/credit.service';
+import { mapXflowStatus } from '../../providers/xflow/xflow.pix';
 
 // Função para enviar postback/webhook para o usuário
 async function sendUserWebhook(userId: string, event: string, data: any) {
@@ -321,72 +323,14 @@ export async function webhooksRoutes(app: FastifyInstance) {
         // Calcular taxas
         const feeCalc = calculatePixFeeSellerPays(grossValue, rates);
 
-        // Atualizar net_value no pagamento
-        await prisma.payment.update({
-          where: { id: payment.id },
-          data: {
-            net_value: feeCalc.netValue,
-            metadata: JSON.parse(JSON.stringify({
-              ...(payment.metadata as any),
-              platform_fee: feeCalc.platformFee,
-              reserve_amount: feeCalc.reserveAmount,
-              provider: 'asaas',
-            })),
-          },
+        // Creditar (respeita splits automaticamente)
+        await creditPaymentOnReceive({
+          payment,
+          providerLabel: 'asaas',
+          feeCalc,
+          rates,
+          providerTransactionId: asaasPaymentId,
         });
-
-        // Atualizar saldo do usuário (líquido + reserva)
-        await prisma.user.update({
-          where: { id: payment.user_id },
-          data: {
-            balance: { increment: feeCalc.netValue },
-            reserved_balance: { increment: feeCalc.reserveAmount },
-          },
-        });
-
-        // Criar reserva de segurança (5%)
-        await prisma.balanceReserve.create({
-          data: {
-            user_id: payment.user_id,
-            payment_id: payment.id,
-            original_amount: grossValue,
-            reserve_amount: feeCalc.reserveAmount,
-            status: 'held',
-            release_date: calculateReleaseDate(rates.reserve_days),
-            description: `Reserva 5% - ${payment.description}`,
-          },
-        });
-
-        // Criar transação
-        await prisma.transaction.create({
-          data: {
-            user_id: payment.user_id,
-            type: 'deposit',
-            amount: feeCalc.netValue,
-            status: 'completed',
-            description: `PIX recebido (Asaas) - ${payment.description}`,
-            metadata: {
-              asaas_payment_id: asaasPaymentId,
-              payment_id: payment.id,
-              billing_type: payment.billing_type,
-              gross_value: grossValue,
-              platform_fee: feeCalc.platformFee,
-              reserve_amount: feeCalc.reserveAmount,
-            },
-          },
-        });
-
-        // Atualizar link de pagamento se existir
-        if (payment.payment_link_id) {
-          await prisma.paymentLink.update({
-            where: { id: payment.payment_link_id },
-            data: {
-              total_received: { increment: grossValue },
-            },
-          });
-        }
-
-        console.log(`[WEBHOOK] Asaas pagamento processado: ${payment.id} - R$${feeCalc.netValue.toFixed(2)} líquido, R$${feeCalc.reserveAmount.toFixed(2)} reserva`);
 
         // Enviar notificação push
         try {
@@ -533,70 +477,14 @@ export async function webhooksRoutes(app: FastifyInstance) {
 
         const feeCalc = calculatePixFeeSellerPays(grossValue, rates);
 
-        // Atualizar net_value no pagamento
-        await prisma.payment.update({
-          where: { id: payment.id },
-          data: {
-            net_value: feeCalc.netValue,
-            metadata: JSON.parse(JSON.stringify({
-              ...(payment.metadata as any),
-              platform_fee: feeCalc.platformFee,
-              reserve_amount: feeCalc.reserveAmount,
-              provider: 'sharkbanking',
-            })),
-          },
+        // Creditar (respeita splits automaticamente)
+        await creditPaymentOnReceive({
+          payment,
+          providerLabel: 'sharkbanking',
+          feeCalc,
+          rates,
+          providerTransactionId: sharkTransactionId,
         });
-
-        // Atualizar saldo do seller
-        await prisma.user.update({
-          where: { id: payment.user_id },
-          data: {
-            balance: { increment: feeCalc.netValue },
-            reserved_balance: { increment: feeCalc.reserveAmount },
-          },
-        });
-
-        // Criar reserva de segurança (5%)
-        await prisma.balanceReserve.create({
-          data: {
-            user_id: payment.user_id,
-            payment_id: payment.id,
-            original_amount: grossValue,
-            reserve_amount: feeCalc.reserveAmount,
-            status: 'held',
-            release_date: calculateReleaseDate(rates.reserve_days),
-            description: `Reserva 5% - ${payment.description}`,
-          },
-        });
-
-        // Criar transação
-        await prisma.transaction.create({
-          data: {
-            user_id: payment.user_id,
-            type: 'deposit',
-            amount: feeCalc.netValue,
-            status: 'completed',
-            description: `PIX recebido (SharkBanking) - ${payment.description}`,
-            metadata: {
-              shark_transaction_id: sharkTransactionId,
-              payment_id: payment.id,
-              billing_type: 'PIX',
-              gross_value: grossValue,
-              platform_fee: feeCalc.platformFee,
-              reserve_amount: feeCalc.reserveAmount,
-            },
-          },
-        });
-
-        // Atualizar link de pagamento
-        if (payment.payment_link_id) {
-          await prisma.paymentLink.update({
-            where: { id: payment.payment_link_id },
-            data: { total_received: { increment: grossValue } },
-          });
-        }
-
-        console.log(`[WEBHOOK] SharkBanking pagamento processado: ${payment.id} - R$${feeCalc.netValue.toFixed(2)} líquido`);
 
         // Notificação push
         try {
@@ -765,70 +653,14 @@ export async function webhooksRoutes(app: FastifyInstance) {
           const rates = applyProviderRateOverrides(baseRates, 'enki', !!customRates?.pix_rate);
           const feeCalc = calculatePixFeeSellerPays(grossValue, rates);
 
-          // Atualizar net_value no pagamento
-          await prisma.payment.update({
-            where: { id: payment.id },
-            data: {
-              net_value: feeCalc.netValue,
-              metadata: JSON.parse(JSON.stringify({
-                ...(payment.metadata as any),
-                platform_fee: feeCalc.platformFee,
-                reserve_amount: feeCalc.reserveAmount,
-                provider: 'enki',
-              })),
-            },
+          // Creditar (respeita splits automaticamente)
+          await creditPaymentOnReceive({
+            payment,
+            providerLabel: 'enki',
+            feeCalc,
+            rates,
+            providerTransactionId: enkiTransactionId,
           });
-
-          // Atualizar saldo do seller
-          await prisma.user.update({
-            where: { id: payment.user_id },
-            data: {
-              balance: { increment: feeCalc.netValue },
-              reserved_balance: { increment: feeCalc.reserveAmount },
-            },
-          });
-
-          // Criar reserva de segurança (5%)
-          await prisma.balanceReserve.create({
-            data: {
-              user_id: payment.user_id,
-              payment_id: payment.id,
-              original_amount: grossValue,
-              reserve_amount: feeCalc.reserveAmount,
-              status: 'held',
-              release_date: calculateReleaseDate(rates.reserve_days),
-              description: `Reserva 5% - ${payment.description}`,
-            },
-          });
-
-          // Criar transação
-          await prisma.transaction.create({
-            data: {
-              user_id: payment.user_id,
-              type: 'deposit',
-              amount: feeCalc.netValue,
-              status: 'completed',
-              description: `PIX recebido (Enki Bank) - ${payment.description}`,
-              metadata: {
-                enki_transaction_id: enkiTransactionId,
-                payment_id: payment.id,
-                billing_type: 'PIX',
-                gross_value: grossValue,
-                platform_fee: feeCalc.platformFee,
-                reserve_amount: feeCalc.reserveAmount,
-              },
-            },
-          });
-
-          // Atualizar link de pagamento
-          if (payment.payment_link_id) {
-            await prisma.paymentLink.update({
-              where: { id: payment.payment_link_id },
-              data: { total_received: { increment: grossValue } },
-            });
-          }
-
-          console.log(`[WEBHOOK] Enki pagamento processado: ${payment.id} - R$${feeCalc.netValue.toFixed(2)} líquido`);
 
           // Notificação push
           try {
@@ -1001,70 +833,14 @@ export async function webhooksRoutes(app: FastifyInstance) {
           const rates = applyProviderRateOverrides(baseRates, 'eusouzucropay', !!customRates?.pix_rate);
           const feeCalc = calculatePixFeeSellerPays(grossValue, rates);
 
-          // Atualizar net_value no pagamento
-          await prisma.payment.update({
-            where: { id: payment.id },
-            data: {
-              net_value: feeCalc.netValue,
-              metadata: JSON.parse(JSON.stringify({
-                ...(payment.metadata as any),
-                platform_fee: feeCalc.platformFee,
-                reserve_amount: feeCalc.reserveAmount,
-                provider: 'eusouzucropay',
-              })),
-            },
+          // Creditar (respeita splits automaticamente)
+          await creditPaymentOnReceive({
+            payment,
+            providerLabel: 'eusouzucropay',
+            feeCalc,
+            rates,
+            providerTransactionId: eusouzucropayTransactionId,
           });
-
-          // Atualizar saldo do seller
-          await prisma.user.update({
-            where: { id: payment.user_id },
-            data: {
-              balance: { increment: feeCalc.netValue },
-              reserved_balance: { increment: feeCalc.reserveAmount },
-            },
-          });
-
-          // Criar reserva de segurança (5%)
-          await prisma.balanceReserve.create({
-            data: {
-              user_id: payment.user_id,
-              payment_id: payment.id,
-              original_amount: grossValue,
-              reserve_amount: feeCalc.reserveAmount,
-              status: 'held',
-              release_date: calculateReleaseDate(rates.reserve_days),
-              description: `Reserva 5% - ${payment.description}`,
-            },
-          });
-
-          // Criar transação
-          await prisma.transaction.create({
-            data: {
-              user_id: payment.user_id,
-              type: 'deposit',
-              amount: feeCalc.netValue,
-              status: 'completed',
-              description: `PIX recebido (EuSouZucroPay) - ${payment.description}`,
-              metadata: {
-                eusouzucropay_transaction_id: eusouzucropayTransactionId,
-                payment_id: payment.id,
-                billing_type: 'PIX',
-                gross_value: grossValue,
-                platform_fee: feeCalc.platformFee,
-                reserve_amount: feeCalc.reserveAmount,
-              },
-            },
-          });
-
-          // Atualizar link de pagamento
-          if (payment.payment_link_id) {
-            await prisma.paymentLink.update({
-              where: { id: payment.payment_link_id },
-              data: { total_received: { increment: grossValue } },
-            });
-          }
-
-          console.log(`[WEBHOOK] EuSouZucroPay pagamento processado: ${payment.id} - R$${feeCalc.netValue.toFixed(2)} líquido`);
 
           // Notificação push
           try {
@@ -1120,6 +896,173 @@ export async function webhooksRoutes(app: FastifyInstance) {
             console.error('[WEBHOOK] Erro push venda pendente:', pushError);
           }
         }
+      }
+    }
+
+    console.log('[WEBHOOK] ========================================');
+    return reply.send({ received: true });
+  });
+
+  // ========== Webhook do XFlow Hub ==========
+  app.get('/xflow', async (_request, reply) => {
+    console.log('[WEBHOOK] GET /xflow - validação');
+    return reply.send({ success: true, message: 'Webhook XFlow ativo' });
+  });
+
+  app.post('/xflow', {
+    preHandler: [webhookRateLimit],
+  }, async (request, reply) => {
+    const body = request.body as any;
+
+    console.log('[WEBHOOK] ========== XFlow Hub Webhook ==========');
+    console.log('[WEBHOOK] Event:', body?.event);
+    console.log('[WEBHOOK] Body:', JSON.stringify(body, null, 2));
+
+    // XFlow envia { event: "transaction.paid", transaction: { id, status, ... }, sent_at }
+    const event: string | undefined = body?.event;
+    const tx = body?.transaction;
+
+    if (!event?.startsWith('transaction.') || !tx?.id) {
+      console.log('[WEBHOOK] ⚠️ XFlow: evento não suportado ou sem transaction.id');
+      return reply.send({ received: true });
+    }
+
+    const xflowTransactionId = String(tx.id);
+
+    const payment = await prisma.payment.findFirst({
+      where: { efi_txid: xflowTransactionId },
+      include: { user: true },
+    });
+
+    if (!payment) {
+      console.log(`[WEBHOOK] XFlow: payment não encontrado (txid=${xflowTransactionId})`);
+      return reply.send({ received: true });
+    }
+
+    // Idempotência: se já está RECEIVED, ignora reentregas
+    if (payment.status === 'RECEIVED') {
+      console.log(`[WEBHOOK] XFlow ${xflowTransactionId} já está RECEIVED, ignorando`);
+      return reply.send({ received: true });
+    }
+
+    const newStatus = mapXflowStatus(tx.status);
+    if (newStatus === payment.status) {
+      return reply.send({ received: true });
+    }
+
+    // Atualização atômica quando vira RECEIVED (evita race com reentregas)
+    if (newStatus === 'RECEIVED') {
+      const updated = await prisma.$executeRaw`
+        UPDATE payments SET status = 'RECEIVED', payment_date = NOW(), updated_at = NOW()
+        WHERE id = ${payment.id}::uuid AND status != 'RECEIVED'
+      `;
+      if (updated === 0) {
+        console.log(`[WEBHOOK] XFlow ${payment.id} já foi processado, ignorando`);
+        return reply.send({ received: true });
+      }
+    } else {
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: {
+          status: newStatus,
+          payment_date: newStatus === 'RECEIVED' ? new Date() : payment.payment_date,
+        },
+      });
+    }
+
+    console.log(`[WEBHOOK] XFlow ${xflowTransactionId} atualizado: ${newStatus}`);
+
+    // Postback da cobrança
+    const eventMap: Record<string, string> = {
+      RECEIVED: 'charge.paid',
+      REFUNDED: 'charge.refunded',
+      CANCELLED: 'charge.cancelled',
+      REFUSED: 'charge.refused',
+      PENDING: 'charge.pending',
+    };
+    const updatedPaymentForPostback = await prisma.payment.findUnique({
+      where: { id: payment.id },
+    });
+    if (updatedPaymentForPostback) {
+      sendChargePostback(
+        updatedPaymentForPostback,
+        eventMap[newStatus] || `charge.${newStatus.toLowerCase()}`,
+      );
+    }
+
+    if (newStatus === 'RECEIVED') {
+      const grossValue = Number(payment.value);
+
+      const customRates = await prisma.userCustomRate.findUnique({
+        where: { user_id: payment.user_id },
+      });
+      const baseRates = await getEffectiveRates(
+        customRates
+          ? {
+              pix_rate: customRates.pix_rate ? Number(customRates.pix_rate) : undefined,
+            }
+          : null,
+      );
+      const rates = applyProviderRateOverrides(baseRates, 'xflow', !!customRates?.pix_rate);
+      const feeCalc = calculatePixFeeSellerPays(grossValue, rates);
+
+      await creditPaymentOnReceive({
+        payment,
+        providerLabel: 'xflow',
+        feeCalc,
+        rates,
+        providerTransactionId: xflowTransactionId,
+      });
+
+      // Notificação push + postbacks
+      try {
+        const customerName = tx?.customer?.name || 'Cliente';
+        await notifySale(payment.user_id, grossValue, customerName, payment.id);
+      } catch (pushError) {
+        console.error('[WEBHOOK] XFlow erro push:', pushError);
+      }
+
+      try {
+        await sendUserWebhook(payment.user_id, 'payment.received', {
+          payment_id: payment.id,
+          value: grossValue,
+          net_value: feeCalc.netValue,
+          status: 'RECEIVED',
+          billing_type: 'PIX',
+          provider: 'xflow',
+        });
+      } catch (webhookError) {
+        console.error('[WEBHOOK] XFlow erro postback:', webhookError);
+      }
+
+      try {
+        const metadata = payment.metadata as any;
+        await sendUtmifyPostback({
+          paymentId: payment.id,
+          sellerId: payment.user_id,
+          value: grossValue,
+          netValue: feeCalc.netValue,
+          platformFee: feeCalc.platformFee,
+          status: 'paid',
+          customerName: metadata?.customer_name || tx?.customer?.name || 'Cliente',
+          customerEmail: metadata?.customer_email || tx?.customer?.email || '',
+          customerPhone: metadata?.customer_phone || undefined,
+          customerDocument: metadata?.customer_document || undefined,
+          productName: payment.description || 'Produto ZucroPay',
+          productId: payment.payment_link_id || undefined,
+          createdAt: payment.created_at.toISOString().replace('T', ' ').substring(0, 19),
+          approvedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+        });
+      } catch (utmifyError) {
+        console.error('[WEBHOOK] XFlow UTMify erro:', utmifyError);
+      }
+    }
+
+    if (newStatus === 'PENDING') {
+      try {
+        await notifySalePending(payment.user_id, Number(payment.value), payment.id);
+      } catch (pushError) {
+        console.error('[WEBHOOK] XFlow erro push pendente:', pushError);
       }
     }
 
