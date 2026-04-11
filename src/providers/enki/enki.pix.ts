@@ -194,8 +194,7 @@ export const createEnkiPixTransfer = async (data: {
 
 /**
  * Consulta o saldo da empresa no Enki Bank.
- * Tenta GET /company/balance. Retorna { available, reserved } em reais,
- * ou null quando não suportado/erro.
+ * GET /company/balance retorna { available, reserved } em centavos.
  */
 export const getEnkiBalance = async (): Promise<{
   available: number;
@@ -207,12 +206,9 @@ export const getEnkiBalance = async (): Promise<{
     if (!result.success) return null;
     const data = result.data?.data || result.data;
     if (!data) return null;
-    const available = Number(data.available ?? data.balance ?? 0);
-    const reserved = Number(data.reserved ?? data.reserved_balance ?? 0);
-    const divisor = available > 1_000_000 || reserved > 1_000_000 ? 100 : 1;
     return {
-      available: available / divisor,
-      reserved: reserved / divisor,
+      available: Number(data.available ?? data.balance ?? 0) / 100,
+      reserved: Number(data.reserved ?? data.reserved_balance ?? 0) / 100,
     };
   } catch (error) {
     console.error('[ENKI] Erro ao consultar saldo:', error);
