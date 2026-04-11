@@ -2,10 +2,10 @@ import { prisma } from '../../config/database';
 
 // Taxas padrão da plataforma (fallback se não existir no banco)
 export const DEFAULT_RATES = {
-  pix_rate: 4.99,        // % taxa PIX
-  card_rate: 4.99,       // % taxa cartão (mantido para compatibilidade)
-  boleto_rate: 4.99,     // % taxa boleto (mantido para compatibilidade)
-  fixed_fee: 0,          // Sem taxa fixa
+  pix_rate: 5.99,        // % taxa PIX — unificada em 5.99% + R$2,00 para todas as adquirentes
+  card_rate: 5.99,       // % taxa cartão (mantido para compatibilidade)
+  boleto_rate: 5.99,     // % taxa boleto (mantido para compatibilidade)
+  fixed_fee: 2.00,       // R$ fixo por transação
   installment_fee: 0,    // Sem juros de parcelamento (somente PIX)
   reserve_percent: 0.05, // 5% de reserva
   reserve_days: 30,      // Dias para liberar reserva
@@ -386,37 +386,22 @@ export const calculateInstallmentValue = (
 
 /**
  * Aplica taxas específicas por adquirente.
- * Se o seller tem custom rate, a taxa dele prevalece.
- * Enki padrão: 3.50% + R$2.50 fixo por transação PIX.
+ *
+ * Taxas estão unificadas entre todas as adquirentes (Shark, Enki,
+ * EuSouZucroPay, XFlow) — por isso esta função é um no-op e apenas
+ * devolve as taxas como vieram. A taxa efetiva é sempre a do
+ * `platform_settings` (editável pelo admin em /admin/taxas) ou a
+ * custom do seller quando existe.
+ *
+ * A assinatura é preservada para não quebrar os callers existentes
+ * nos webhooks e no checkout. Se no futuro precisar diferenciar
+ * rates por adquirente, é só adicionar os branches aqui novamente.
  */
 export const applyProviderRateOverrides = (
   rates: SellerRates,
-  provider: string,
-  hasCustomRates?: boolean
+  _provider: string,
+  _hasCustomRates?: boolean
 ): SellerRates => {
-  if (provider === 'enki' && !hasCustomRates) {
-    return {
-      ...rates,
-      pix_rate: 3.50,
-      fixed_fee: 2.50,
-    };
-  }
-  if (provider === 'eusouzucropay' && !hasCustomRates) {
-    return {
-      ...rates,
-      pix_rate: 4.99,
-      fixed_fee: 2.50,
-    };
-  }
-  if (provider === 'xflow' && !hasCustomRates) {
-    // XFlow PIX: 1.99% (taxa da própria adquirente segundo doc).
-    // ZucroPay repassa para o seller como 3.99% para ter margem.
-    return {
-      ...rates,
-      pix_rate: 3.99,
-      fixed_fee: 2.50,
-    };
-  }
   return rates;
 };
 

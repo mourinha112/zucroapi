@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../config/database';
 import { authenticate, standardRateLimit } from '../../middlewares';
+import { getEffectiveRates } from '../../providers/efibank/fee.calculator';
 
 export async function usersRoutes(app: FastifyInstance) {
   // Obter perfil do usuário
@@ -69,6 +70,46 @@ export async function usersRoutes(app: FastifyInstance) {
         reserved: Number(user.reserved_balance),
         total: Number(user.balance) + Number(user.reserved_balance),
       },
+    });
+  });
+
+  // Obter taxas efetivas do seller (platform_settings + custom se houver)
+  // Usado pela página "Minhas Taxas" — sempre reflete o que o admin configurou
+  app.get('/my-rates', {
+    preHandler: [standardRateLimit, authenticate],
+  }, async (request, reply) => {
+    const decoded = request.user as { id: string };
+
+    const customRates = await prisma.userCustomRate.findUnique({
+      where: { user_id: decoded.id },
+    });
+
+    // Merge: platform rates (do banco) + custom rates do seller (se houver)
+    const effectiveRates = await getEffectiveRates(
+      customRates
+        ? {
+            pix_rate: customRates.pix_rate ? Number(customRates.pix_rate) : undefined,
+            card_rate: customRates.card_rate ? Number(customRates.card_rate) : undefined,
+            boleto_rate: customRates.boleto_rate ? Number(customRates.boleto_rate) : undefined,
+            withdrawal_fee: customRates.withdrawal_fee
+              ? Number(customRates.withdrawal_fee)
+              : undefined,
+          }
+        : null,
+    );
+
+    return reply.send({
+      success: true,
+      rates: {
+        pix_rate: effectiveRates.pix_rate,
+        card_rate: effectiveRates.card_rate,
+        boleto_rate: effectiveRates.boleto_rate,
+        fixed_fee: effectiveRates.fixed_fee,
+        reserve_percent: effectiveRates.reserve_percent,
+        reserve_days: effectiveRates.reserve_days,
+        withdrawal_fee: effectiveRates.withdrawal_fee,
+      },
+      isCustom: !!customRates,
     });
   });
 

@@ -201,3 +201,32 @@ export const createSharkPixTransfer = async (data: {
     status: transfer.status,
   };
 };
+
+/**
+ * Consulta o saldo da empresa no SharkBanking.
+ * Tenta GET /company/balance primeiro (padrão unificado dos gateways).
+ * Retorna { available, reserved } em reais, ou null se não suportado/erro.
+ */
+export const getSharkBalance = async (): Promise<{
+  available: number;
+  reserved: number;
+} | null> => {
+  try {
+    if (!env.SHARK_PUBLIC_KEY || !env.SHARK_SECRET_KEY) return null;
+    const result = await sharkRequest('GET', '/company/balance');
+    if (!result.success) return null;
+    const data = result.data?.data || result.data;
+    if (!data) return null;
+    const available = Number(data.available ?? data.balance ?? 0);
+    const reserved = Number(data.reserved ?? data.reserved_balance ?? 0);
+    // Heurística: se o número é grande demais, provavelmente veio em centavos
+    const divisor = available > 1_000_000 || reserved > 1_000_000 ? 100 : 1;
+    return {
+      available: available / divisor,
+      reserved: reserved / divisor,
+    };
+  } catch (error) {
+    console.error('[SHARK] Erro ao consultar saldo:', error);
+    return null;
+  }
+};

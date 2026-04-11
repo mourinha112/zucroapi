@@ -198,6 +198,31 @@ export const createXflowPixTransfer = async (data: {
 };
 
 /**
+ * Consulta o saldo da empresa no XFlow Hub.
+ * GET /v1/company/balance → { data: { available, reserved } } em centavos.
+ */
+export const getXflowBalance = async (): Promise<{
+  available: number;
+  reserved: number;
+} | null> => {
+  try {
+    if (!env.XFLOW_PUBLIC_KEY || !env.XFLOW_SECRET_KEY) return null;
+    const result = await xflowRequest('GET', '/company/balance');
+    if (!result.success) return null;
+    const data = result.data?.data || result.data;
+    if (!data) return null;
+    // Saldo vem em centavos na doc do XFlow
+    return {
+      available: Number(data.available || 0) / 100,
+      reserved: Number(data.reserved || 0) / 100,
+    };
+  } catch (error) {
+    console.error('[XFLOW] Erro ao consultar saldo:', error);
+    return null;
+  }
+};
+
+/**
  * Mapeia o status do XFlow para o vocabulário interno da ZucroPay.
  * Estados XFlow: WAITING_PAYMENT, PENDING, APPROVED, PAID, REFUSED,
  * CANCELLED, REFUNDED, IN_PROTEST, CHARGEBACK.

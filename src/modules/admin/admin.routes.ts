@@ -3,6 +3,11 @@ import { prisma } from '../../config/database';
 import { authenticateAdmin, standardRateLimit, sensitiveActionRateLimit } from '../../middlewares';
 import { notifyWithdrawalApproved, notifyWithdrawalRejected } from '../push/push.service';
 import { sendAccountApprovedEmail } from '../auth/email.service';
+import { getSharkBalance } from '../../providers/sharkbanking/shark.pix';
+import { getEnkiBalance } from '../../providers/enki/enki.pix';
+import { getEuSouZucroPayBalance } from '../../providers/eusouzucropay/eusouzucropay.pix';
+import { getXflowBalance } from '../../providers/xflow/xflow.pix';
+import { env } from '../../config/env';
 
 export async function adminRoutes(app: FastifyInstance) {
   // Dashboard stats com GMV, Lucro e dados para gráficos
@@ -255,6 +260,77 @@ export async function adminRoutes(app: FastifyInstance) {
         success: false,
         error: 'Erro ao buscar estatísticas',
         details: error.message,
+      });
+    }
+  });
+
+  // ============================================
+  // SALDOS DAS ADQUIRENTES
+  // ============================================
+  // Consulta em paralelo o saldo de cada adquirente configurada e
+  // retorna num formato pronto pra renderizar card no admin.
+  // Providers sem credenciais no .env ou que falharem retornam null.
+  app.get('/provider-balances', {
+    preHandler: [standardRateLimit, authenticateAdmin],
+  }, async (_request, reply) => {
+    try {
+      const [shark, enki, eusouzucropay, xflow] = await Promise.all([
+        getSharkBalance(),
+        getEnkiBalance(),
+        getEuSouZucroPayBalance(),
+        getXflowBalance(),
+      ]);
+
+      const providers = [
+        {
+          id: 'sharkbanking',
+          name: 'SharkBanking',
+          configured: !!(env.SHARK_PUBLIC_KEY && env.SHARK_SECRET_KEY),
+          balance: shark,
+        },
+        {
+          id: 'enki',
+          name: 'Enki Bank',
+          configured: !!(env.ENKI_PUBLIC_KEY && env.ENKI_SECRET_KEY),
+          balance: enki,
+        },
+        {
+          id: 'eusouzucropay',
+          name: 'EuSouZucroPay',
+          configured: !!(env.EUSOUZUCROPAY_PUBLIC_KEY && env.EUSOUZUCROPAY_SECRET_KEY),
+          balance: eusouzucropay,
+        },
+        {
+          id: 'xflow',
+          name: 'XFlow Hub',
+          configured: !!(env.XFLOW_PUBLIC_KEY && env.XFLOW_SECRET_KEY),
+          balance: xflow,
+        },
+      ];
+
+      const totalAvailable = providers.reduce(
+        (acc, p) => acc + (p.balance?.available ?? 0),
+        0,
+      );
+      const totalReserved = providers.reduce(
+        (acc, p) => acc + (p.balance?.reserved ?? 0),
+        0,
+      );
+
+      return reply.send({
+        success: true,
+        providers,
+        totals: {
+          available: totalAvailable,
+          reserved: totalReserved,
+          total: totalAvailable + totalReserved,
+        },
+      });
+    } catch (error: any) {
+      console.error('Erro ao buscar saldos das adquirentes:', error);
+      return reply.status(500).send({
+        success: false,
+        error: error.message || 'Erro ao buscar saldos das adquirentes',
       });
     }
   });
