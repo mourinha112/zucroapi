@@ -1790,6 +1790,8 @@ export async function adminRoutes(app: FastifyInstance) {
           efi_txid: s.efi_txid,
           // Descrição
           description: s.description,
+          // Metadata completo (inclui payment_provider, provider etc.)
+          metadata: s.metadata,
         })),
       });
     } catch (error: any) {

@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { prisma } from '../../config/database';
 import { createSharkPixCharge } from '../../providers/sharkbanking/shark.pix';
 import { createEnkiPixCharge } from '../../providers/enki/enki.pix';
+import { createEuSouZucroPayPixCharge } from '../../providers/eusouzucropay/eusouzucropay.pix';
+import { createXflowPixCharge } from '../../providers/xflow/xflow.pix';
 import {
   getEffectiveRates,
   calculatePixFeeSellerPays,
@@ -171,26 +173,25 @@ export async function integrationsRoutes(app: FastifyInstance) {
         const sellerProvider = (user as any).payment_provider || 'eusouzucropay';
         let chargeRes: { success: boolean; transactionId?: string; pixCode?: string; pixQrCode?: string; error?: string; debug?: any };
 
-        if (sellerProvider === 'enki') {
-          chargeRes = await createEnkiPixCharge({
-            value: body.value,
-            description,
-            customerName: body.customer?.name || 'Cliente',
-            customerEmail: body.customer?.email || '',
-            customerCpf: body.customer?.cpf_cnpj,
-            customerPhone: body.customer?.phone,
-            externalRef: body.external_reference || `api_${user.id}_${Date.now()}`,
-          });
+        const chargePayload = {
+          value: body.value,
+          description,
+          customerName: body.customer?.name || 'Cliente',
+          customerEmail: body.customer?.email || '',
+          customerCpf: body.customer?.cpf_cnpj,
+          customerPhone: body.customer?.phone,
+          externalRef: body.external_reference || `api_${user.id}_${Date.now()}`,
+        };
+
+        if (sellerProvider === 'xflow') {
+          chargeRes = await createXflowPixCharge(chargePayload);
+        } else if (sellerProvider === 'enki') {
+          chargeRes = await createEnkiPixCharge(chargePayload);
+        } else if (sellerProvider === 'eusouzucropay') {
+          chargeRes = await createEuSouZucroPayPixCharge(chargePayload);
         } else {
-          chargeRes = await createSharkPixCharge({
-            value: body.value,
-            description,
-            customerName: body.customer?.name || 'Cliente',
-            customerEmail: body.customer?.email || '',
-            customerCpf: body.customer?.cpf_cnpj,
-            customerPhone: body.customer?.phone,
-            externalRef: body.external_reference || `api_${user.id}_${Date.now()}`,
-          });
+          // efibank/shark/fallback → SharkBanking
+          chargeRes = await createSharkPixCharge(chargePayload);
         }
 
         if (!chargeRes.success || !chargeRes.pixCode) {
@@ -222,8 +223,12 @@ export async function integrationsRoutes(app: FastifyInstance) {
               postback_url: body.postback_url || body.callback_url,
               platform_fee: feeCalc.platformFee,
               payment_provider: sellerProvider,
-              ...(sellerProvider === 'enki'
+              ...(sellerProvider === 'xflow'
+                ? { xflow_transaction_id: chargeRes.transactionId }
+                : sellerProvider === 'enki'
                 ? { enki_transaction_id: chargeRes.transactionId }
+                : sellerProvider === 'eusouzucropay'
+                ? { eusouzucropay_transaction_id: chargeRes.transactionId }
                 : { shark_transaction_id: chargeRes.transactionId }),
               customer_name: body.customer?.name,
               customer_email: body.customer?.email,
