@@ -135,6 +135,62 @@ export async function adminRoutes(app: FastifyInstance) {
         console.log('Erro ao buscar dados do gráfico:', e);
       }
 
+      // Sellers ativos no período (quem recebeu pagamento RECEIVED no range)
+      let activeSellers: any[] = [];
+      try {
+        const sellersRows: any[] = hasRange
+          ? await prisma.$queryRaw`
+              SELECT
+                u.id,
+                u.name,
+                u.email,
+                u.balance,
+                u.payment_provider,
+                COUNT(p.id)::int AS sales_count,
+                COALESCE(SUM(p.value), 0)::float AS total_value,
+                COALESCE(SUM(p.net_value), 0)::float AS total_net
+              FROM payments p
+              INNER JOIN users u ON u.id = p.user_id
+              WHERE p.status = 'RECEIVED'
+                AND p.created_at >= ${startDate}
+                AND p.created_at <= ${endDate}
+              GROUP BY u.id, u.name, u.email, u.balance, u.payment_provider
+              ORDER BY total_value DESC
+              LIMIT 20
+            `
+          : await prisma.$queryRaw`
+              SELECT
+                u.id,
+                u.name,
+                u.email,
+                u.balance,
+                u.payment_provider,
+                COUNT(p.id)::int AS sales_count,
+                COALESCE(SUM(p.value), 0)::float AS total_value,
+                COALESCE(SUM(p.net_value), 0)::float AS total_net
+              FROM payments p
+              INNER JOIN users u ON u.id = p.user_id
+              WHERE p.status = 'RECEIVED'
+                AND p.created_at >= NOW() - INTERVAL '30 days'
+              GROUP BY u.id, u.name, u.email, u.balance, u.payment_provider
+              ORDER BY total_value DESC
+              LIMIT 20
+            `;
+
+        activeSellers = sellersRows.map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          email: r.email,
+          balance: Number(r.balance || 0),
+          payment_provider: r.payment_provider,
+          sales_count: Number(r.sales_count || 0),
+          total_value: Number(r.total_value || 0),
+          total_net: Number(r.total_net || 0),
+        }));
+      } catch (e) {
+        console.log('Erro ao buscar sellers ativos:', e);
+      }
+
       // Métodos de pagamento (aplica range se houver)
       let paymentMethodData: any[] = [];
       try {
@@ -190,6 +246,7 @@ export async function adminRoutes(app: FastifyInstance) {
         charts: {
           salesChart: salesChartData,
           paymentMethods: paymentMethodData,
+          topSellers: activeSellers, // Sellers que venderam no período (ordenado por faturamento desc)
         },
       });
     } catch (error: any) {
