@@ -195,9 +195,12 @@ export async function integrationsRoutes(app: FastifyInstance) {
         }
 
         if (!chargeRes.success || !chargeRes.pixCode) {
+          console.error(`[API] Falha ao criar cobrança PIX (provider: ${sellerProvider}):`, chargeRes.error, chargeRes.debug);
           return reply.status(400).send({
             error: chargeRes.error || 'Erro ao gerar cobrança PIX',
             code: 'PIX_CREATION_FAILED',
+            provider: sellerProvider,
+            details: chargeRes.debug?.message || chargeRes.debug?.error || undefined,
           });
         }
 

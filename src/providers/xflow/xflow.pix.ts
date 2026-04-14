@@ -53,10 +53,14 @@ export const createXflowPixCharge = async (
       name: data.customerName,
       email: data.customerEmail,
       ...(phoneDigits ? { phone: phoneDigits } : {}),
-      document: {
-        number: cpfDigits,
-        type: cpfDigits.length > 11 ? 'CNPJ' : 'CPF',
-      },
+      ...(cpfDigits
+        ? {
+            document: {
+              number: cpfDigits,
+              type: cpfDigits.length > 11 ? 'CNPJ' : 'CPF',
+            },
+          }
+        : {}),
     },
   };
 
