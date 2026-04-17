@@ -284,7 +284,7 @@ export async function adminRoutes(app: FastifyInstance) {
       const providers = [
         {
           id: 'sharkbanking',
-          name: 'Shark Hub',
+          name: 'SharkBanking V2',
           configured: !!env.SHARK_API_KEY,
           balance: shark,
         },
