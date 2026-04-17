@@ -3,7 +3,7 @@ import { env } from '../../config/env';
 import QRCode from 'qrcode';
 
 export interface SharkPixChargeData {
-  value: number; // valor em reais (ex: 49.90)
+  value: number;
   description: string;
   customerName: string;
   customerEmail: string;
@@ -17,69 +17,59 @@ export interface SharkPixChargeResult {
   success: boolean;
   transactionId?: string;
   pixCode?: string;
-  pixQrCode?: string; // base64 da imagem
+  pixQrCode?: string;
   secureUrl?: string;
   error?: string;
   debug?: any;
 }
 
-/**
- * Criar cobrança PIX via SharkBanking
- * POST /v1/transactions
- */
 export const createSharkPixCharge = async (data: SharkPixChargeData): Promise<SharkPixChargeResult> => {
-  // SharkBanking usa valor em centavos
   const amountInCents = Math.round(data.value * 100);
+  const notificationUrl = data.postbackUrl || env.SHARK_WEBHOOK_URL || '';
 
   const payload: any = {
     amount: amountInCents,
-    paymentMethod: 'pix',
-    customer: {
+    currency: 'BRL',
+    method: 'PIX',
+    description: (data.description || 'Pagamento').substring(0, 100),
+    externalRef: data.externalRef,
+    notificationUrl,
+    payer: {
       name: data.customerName,
       email: data.customerEmail,
-      document: {
-        number: (data.customerCpf || '').replace(/\D/g, ''),
-        type: (data.customerCpf || '').replace(/\D/g, '').length > 11 ? 'cnpj' : 'cpf',
-      },
+      taxId: (data.customerCpf || '').replace(/\D/g, ''),
     },
     items: [
       {
-        title: (data.description || 'Pagamento').substring(0, 100).padEnd(3, ' '),
-        unitPrice: amountInCents,
         quantity: 1,
-        tangible: false,
+        name: (data.description || 'Pagamento').substring(0, 100),
+        price: amountInCents,
+        type: 'DIGITAL',
       },
     ],
-    postbackUrl: data.postbackUrl || env.SHARK_WEBHOOK_URL || '',
-    ip: '127.0.0.1',
   };
 
   if (data.customerPhone) {
-    payload.customer.phone = data.customerPhone.replace(/\D/g, '');
-  }
-
-  if (data.externalRef) {
-    payload.externalRef = data.externalRef;
+    payload.payer.phone = data.customerPhone.replace(/\D/g, '');
   }
 
   console.log('[SHARK PIX] Criando cobrança:', JSON.stringify(payload));
 
-  const result = await sharkRequest('POST', '/transactions', payload);
+  const result = await sharkRequest('POST', '/payment', payload, { auth: 'api' });
 
   if (!result.success) {
     console.error('[SHARK PIX] Erro ao criar cobrança:', result.data);
     return {
       success: false,
-      error: result.data?.message || result.data?.error || 'Erro ao criar cobrança PIX no SharkBanking',
+      error: result.data?.message || result.data?.error || 'Erro ao criar cobrança PIX no Shark Hub',
       debug: result.data,
     };
   }
 
   const transaction = result.data;
-  const pixCopyPaste = transaction.pix?.qrcode || '';
+  const pixCopyPaste = transaction?.data?.copypaste || '';
   let pixQrCodeBase64 = '';
 
-  // Gerar imagem QR Code a partir do código copia-e-cola
   if (pixCopyPaste) {
     try {
       pixQrCodeBase64 = await QRCode.toDataURL(pixCopyPaste, {
@@ -100,16 +90,20 @@ export const createSharkPixCharge = async (data: SharkPixChargeData): Promise<Sh
     transactionId: String(transaction.id),
     pixCode: pixCopyPaste,
     pixQrCode: pixQrCodeBase64,
-    secureUrl: transaction.secureUrl,
   };
 };
 
-/**
- * Consultar transação no SharkBanking
- * GET /v1/transactions/{id}
- */
+const mapSharkHubPaymentStatus = (status: string): string => {
+  const s = (status || '').toUpperCase();
+  if (s === 'PAID') return 'RECEIVED';
+  if (s === 'PENDING' || s === 'PROCESSING') return 'PENDING';
+  if (s === 'REFUSED') return 'REFUSED';
+  if (s === 'REFUNDED' || s === 'CHARGEDBACK' || s === 'MED') return 'REFUNDED';
+  return 'PENDING';
+};
+
 export const getSharkTransaction = async (transactionId: string) => {
-  const result = await sharkRequest('GET', `/transactions/${transactionId}`);
+  const result = await sharkRequest('GET', `/payment/${transactionId}`, null, { auth: 'api' });
 
   if (!result.success) {
     return {
@@ -119,22 +113,7 @@ export const getSharkTransaction = async (transactionId: string) => {
   }
 
   const transaction = result.data;
-
-  // Mapear status do SharkBanking para ZucroPay
-  let status = 'PENDING';
-  if (transaction.status === 'paid' || transaction.status === 'approved') {
-    status = 'RECEIVED';
-  } else if (transaction.status === 'waiting_payment' || transaction.status === 'pending') {
-    status = 'PENDING';
-  } else if (transaction.status === 'refused') {
-    status = 'REFUSED';
-  } else if (transaction.status === 'refunded') {
-    status = 'REFUNDED';
-  } else if (transaction.status === 'cancelled') {
-    status = 'CANCELLED';
-  } else if (transaction.status === 'chargeback' || transaction.status === 'in_protest') {
-    status = 'REFUNDED';
-  }
+  const status = mapSharkHubPaymentStatus(transaction.status);
 
   return {
     success: true,
@@ -144,49 +123,48 @@ export const getSharkTransaction = async (transactionId: string) => {
   };
 };
 
-/**
- * Criar transferência PIX (saque) via SharkBanking
- * POST /v1/transfers
- */
 export const createSharkPixTransfer = async (data: {
   value: number;
   pixKey: string;
   pixKeyType: string;
   description?: string;
   postbackUrl?: string;
+  externalRef?: string;
 }) => {
   const amountInCents = Math.round(data.value * 100);
+  const transferWebhook = env.SHARK_WEBHOOK_URL ? `${env.SHARK_WEBHOOK_URL}/transfer` : '';
+  const notificationUrl = data.postbackUrl || transferWebhook;
 
-  // Mapear tipo de chave para o formato do SharkBanking
   const pixKeyTypeMap: Record<string, string> = {
-    cpf: 'cpf',
-    cnpj: 'cnpj',
-    email: 'email',
-    phone: 'phone',
-    random: 'evp',
-    evp: 'evp',
+    cpf: 'CPF',
+    cnpj: 'CNPJ',
+    email: 'EMAIL',
+    phone: 'PHONE',
+    random: 'EVP',
+    evp: 'EVP',
+    copypaste: 'COPYPASTE',
   };
 
-  const payload = {
-    method: 'fiat',
+  const payload: any = {
     amount: amountInCents,
-    pixKey: data.pixKey,
-    pixKeyType: pixKeyTypeMap[data.pixKeyType] || 'cpf',
-    netPayout: false, // taxa descontada do valor solicitado
-    postbackUrl: data.postbackUrl || env.SHARK_WEBHOOK_URL || '',
+    method: 'PIX',
+    externalRef: data.externalRef,
+    notificationUrl,
+    pix: {
+      pixKeyType: pixKeyTypeMap[(data.pixKeyType || '').toLowerCase()] || 'CPF',
+      pixKey: data.pixKey,
+    },
   };
 
   console.log('[SHARK TRANSFER] Criando saque:', JSON.stringify(payload));
 
-  const result = await sharkRequest('POST', '/transfers', payload, {
-    'x-withdraw-key': env.SHARK_WITHDRAW_KEY || '',
-  });
+  const result = await sharkRequest('POST', '/transfer', payload, { auth: 'withdraw' });
 
   if (!result.success) {
     console.error('[SHARK TRANSFER] Erro:', result.data);
     return {
       success: false,
-      error: result.data?.message || result.data?.error || 'Erro ao processar saque no SharkBanking',
+      error: result.data?.message || result.data?.error || 'Erro ao processar saque no Shark Hub',
       debug: result.data,
     };
   }
@@ -197,29 +175,29 @@ export const createSharkPixTransfer = async (data: {
   return {
     success: true,
     transferId: String(transfer.id),
-    endToEndId: transfer.pixEnd2EndId || transfer.id,
+    endToEndId: transfer?.data?.e2e || transfer.id,
     status: transfer.status,
   };
 };
 
-/**
- * Consulta o saldo da empresa no SharkBanking.
- * GET /company/balance retorna { available, reserved } em centavos
- * (padrão unificado dos gateways desse modelo).
- */
 export const getSharkBalance = async (): Promise<{
   available: number;
   reserved: number;
 } | null> => {
   try {
-    if (!env.SHARK_PUBLIC_KEY || !env.SHARK_SECRET_KEY) return null;
-    const result = await sharkRequest('GET', '/company/balance');
+    if (!env.SHARK_WITHDRAW_KEY) return null;
+    const result = await sharkRequest('GET', '/balance', null, { auth: 'withdraw' });
     if (!result.success) return null;
-    const data = result.data?.data || result.data;
+    const data = result.data;
     if (!data) return null;
+
+    const available = Number(data.available ?? 0) / 100;
+    const transfersPending = Number(data?.transfers?.pending ?? 0) / 100;
+    const reservePending = Number(data?.reserve?.pending ?? 0) / 100;
+
     return {
-      available: Number(data.available ?? data.balance ?? 0) / 100,
-      reserved: Number(data.reserved ?? data.reserved_balance ?? 0) / 100,
+      available,
+      reserved: transfersPending + reservePending,
     };
   } catch (error) {
     console.error('[SHARK] Erro ao consultar saldo:', error);

@@ -1,4 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import * as crypto from 'crypto';
 import { prisma } from '../../config/database';
 import { webhookQueue } from '../../queues/webhook.queue';
 import { authenticate, standardRateLimit, webhookRateLimit, createResourceRateLimit } from '../../middlewares';
@@ -13,6 +14,22 @@ import {
 } from '../../providers/efibank/fee.calculator';
 import { creditPaymentOnReceive } from '../payments/credit.service';
 import { mapXflowStatus } from '../../providers/xflow/xflow.pix';
+import { env } from '../../config/env';
+
+function verifySharkSignature(rawBody: string | undefined, headerSignature: string | undefined, secret: string): 'ok' | 'skip' | 'invalid' {
+  if (!secret) return 'skip';
+  if (!rawBody) return 'skip';
+  if (!headerSignature) return 'invalid';
+  try {
+    const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('base64');
+    const a = Buffer.from(expected);
+    const b = Buffer.from(headerSignature);
+    if (a.length !== b.length) return 'invalid';
+    return crypto.timingSafeEqual(a, b) ? 'ok' : 'invalid';
+  } catch {
+    return 'invalid';
+  }
+}
 
 // Função para enviar postback/webhook para o usuário
 async function sendUserWebhook(userId: string, event: string, data: any) {
@@ -371,56 +388,61 @@ export async function webhooksRoutes(app: FastifyInstance) {
     return reply.send({ received: true });
   });
 
-  // ========== Webhook do SharkBanking ==========
+  // ========== Webhook do Shark Hub (Pagamento) ==========
   app.post('/shark', {
     preHandler: [webhookRateLimit],
   }, async (request, reply) => {
     const body = request.body as any;
+    const rawBody = (request as any).rawBody as string | undefined;
+    const signature = request.headers['x-signature'] as string | undefined;
 
-    console.log('[WEBHOOK] ========== SharkBanking Webhook ==========');
-    console.log('[WEBHOOK] Type:', body.type);
-    console.log('[WEBHOOK] ObjectId:', body.objectId);
-    console.log('[WEBHOOK] Status:', body.data?.status);
+    console.log('[WEBHOOK] ========== Shark Hub Payment Webhook ==========');
+    console.log('[WEBHOOK] Status:', body?.status, 'Id:', body?.id);
     console.log('[WEBHOOK] Body:', JSON.stringify(body, null, 2));
 
-    // SharkBanking envia postback com type "transaction" e dados em "data"
-    if (body.type !== 'transaction' || !body.data) {
-      console.log('[WEBHOOK] ⚠️ Evento não é transação, ignorando');
+    const sigResult = verifySharkSignature(rawBody, signature, env.SHARK_WEBHOOK_SECRET);
+    if (sigResult === 'invalid') {
+      console.log('[WEBHOOK] ⚠️ Shark Hub: assinatura HMAC inválida');
+      return reply.status(401).send({ error: 'invalid signature' });
+    }
+    if (sigResult === 'skip' && env.SHARK_WEBHOOK_SECRET) {
+      console.log('[WEBHOOK] ℹ️ Shark Hub: pulando validação HMAC (rawBody indisponível)');
+    }
+
+    if (!body?.id || !body?.status) {
+      console.log('[WEBHOOK] ⚠️ Shark Hub: payload sem id/status, ignorando');
       return reply.send({ received: true });
     }
 
-    const transactionData = body.data;
+    const transactionData = body;
     const sharkTransactionId = String(transactionData.id);
 
-    // Buscar pagamento pelo shark_transaction_id (armazenado no efi_txid)
     const payment = await prisma.payment.findFirst({
       where: { efi_txid: sharkTransactionId },
       include: { user: true },
     });
 
     if (!payment) {
-      console.log(`[WEBHOOK] Pagamento SharkBanking não encontrado: ${sharkTransactionId}`);
+      console.log(`[WEBHOOK] Pagamento Shark Hub não encontrado: ${sharkTransactionId}`);
       return reply.send({ received: true });
     }
 
     let newStatus = payment.status;
 
-    // Mapeamento de status SharkBanking → ZucroPay
-    if (transactionData.status === 'paid' || transactionData.status === 'approved') {
+    const status = String(transactionData.status || '').toUpperCase();
+    if (status === 'PAID') {
       newStatus = 'RECEIVED';
-    } else if (transactionData.status === 'waiting_payment' || transactionData.status === 'pending') {
+    } else if (status === 'PENDING' || status === 'PROCESSING') {
       newStatus = 'PENDING';
-    } else if (transactionData.status === 'refused') {
+    } else if (status === 'REFUSED') {
       newStatus = 'REFUSED';
-    } else if (transactionData.status === 'refunded' || transactionData.status === 'chargeback') {
+    } else if (status === 'REFUNDED' || status === 'CHARGEDBACK' || status === 'MED') {
       newStatus = 'REFUNDED';
-    } else if (transactionData.status === 'cancelled') {
-      newStatus = 'CANCELLED';
     }
 
     // Se já está RECEIVED, ignorar (proteção contra reprocessamento)
     if (payment.status === 'RECEIVED') {
-      console.log(`[WEBHOOK] SharkBanking ${sharkTransactionId} já está RECEIVED, ignorando`);
+      console.log(`[WEBHOOK] Shark Hub ${sharkTransactionId} já está RECEIVED, ignorando`);
       return reply.send({ received: true });
     }
 
@@ -447,7 +469,7 @@ export async function webhooksRoutes(app: FastifyInstance) {
         });
       }
 
-      console.log(`[WEBHOOK] SharkBanking ${sharkTransactionId} atualizado: ${newStatus}`);
+      console.log(`[WEBHOOK] Shark Hub ${sharkTransactionId} atualizado: ${newStatus}`);
 
       // Enviar postback com status atualizado
       const sharkEventMap: Record<string, string> = {
@@ -488,7 +510,7 @@ export async function webhooksRoutes(app: FastifyInstance) {
 
         // Notificação push
         try {
-          const customerName = transactionData.customer?.name || 'Cliente';
+          const customerName = transactionData.payer?.name || transactionData.customer?.name || 'Cliente';
           await notifySale(payment.user_id, grossValue, customerName, payment.id);
         } catch (pushError) {
           console.error('[WEBHOOK] Erro push:', pushError);
@@ -518,8 +540,8 @@ export async function webhooksRoutes(app: FastifyInstance) {
             netValue: feeCalc.netValue,
             platformFee: feeCalc.platformFee,
             status: 'paid',
-            customerName: metadata?.customer_name || transactionData.customer?.name || 'Cliente',
-            customerEmail: metadata?.customer_email || transactionData.customer?.email || '',
+            customerName: metadata?.customer_name || transactionData.payer?.name || transactionData.customer?.name || 'Cliente',
+            customerEmail: metadata?.customer_email || transactionData.payer?.email || transactionData.customer?.email || '',
             customerPhone: metadata?.customer_phone || undefined,
             customerDocument: metadata?.customer_document || undefined,
             productName: payment.description || 'Produto ZucroPay',
@@ -543,6 +565,88 @@ export async function webhooksRoutes(app: FastifyInstance) {
     }
 
     console.log('[WEBHOOK] ========================================');
+    return reply.send({ received: true });
+  });
+
+  // ========== Webhook do Shark Hub (Saque / Transferência) ==========
+  app.post('/shark/transfer', {
+    preHandler: [webhookRateLimit],
+  }, async (request, reply) => {
+    const body = request.body as any;
+    const rawBody = (request as any).rawBody as string | undefined;
+    const signature = request.headers['x-signature'] as string | undefined;
+
+    console.log('[WEBHOOK] ========== Shark Hub Transfer Webhook ==========');
+    console.log('[WEBHOOK] Status:', body?.status, 'Id:', body?.id, 'ExternalRef:', body?.externalRef);
+    console.log('[WEBHOOK] Body:', JSON.stringify(body, null, 2));
+
+    const sigResult = verifySharkSignature(rawBody, signature, env.SHARK_WEBHOOK_SECRET_TRANSFER);
+    if (sigResult === 'invalid') {
+      console.log('[WEBHOOK] ⚠️ Shark Hub Transfer: assinatura HMAC inválida');
+      return reply.status(401).send({ error: 'invalid signature' });
+    }
+    if (sigResult === 'skip' && env.SHARK_WEBHOOK_SECRET_TRANSFER) {
+      console.log('[WEBHOOK] ℹ️ Shark Hub Transfer: pulando validação HMAC (rawBody indisponível)');
+    }
+
+    if (!body?.id || !body?.status) {
+      console.log('[WEBHOOK] ⚠️ Shark Hub Transfer: payload sem id/status');
+      return reply.send({ received: true });
+    }
+
+    const status = String(body.status || '').toUpperCase();
+    const withdrawalId = body.externalRef ? String(body.externalRef) : null;
+
+    if (!withdrawalId) {
+      console.log('[WEBHOOK] Shark Hub Transfer sem externalRef, apenas loggando');
+      return reply.send({ received: true });
+    }
+
+    const withdrawal = await prisma.withdrawal.findUnique({ where: { id: withdrawalId } });
+    if (!withdrawal) {
+      console.log(`[WEBHOOK] Withdrawal ${withdrawalId} não encontrado`);
+      return reply.send({ received: true });
+    }
+
+    const isFailure = status === 'FAILED' || status === 'REFUSED';
+    const isSuccess = status === 'COMPLETED';
+
+    if (isFailure && withdrawal.status !== 'rejected' && withdrawal.status !== 'completed') {
+      await prisma.$transaction([
+        prisma.withdrawal.update({
+          where: { id: withdrawal.id },
+          data: {
+            status: 'rejected',
+            rejection_reason: `Shark Hub: ${status}${body.message ? ` - ${body.message}` : ''}`,
+            admin_notes: `${withdrawal.admin_notes || ''}\n[Shark Hub webhook] transfer ${body.id} → ${status}`.trim(),
+          },
+        }),
+        prisma.user.update({
+          where: { id: withdrawal.user_id },
+          data: { balance: { increment: withdrawal.amount } },
+        }),
+        prisma.adminLog.create({
+          data: {
+            admin_id: withdrawal.reviewed_by || withdrawal.user_id,
+            action: 'withdrawal_transfer_failed',
+            target_type: 'withdrawal',
+            target_id: withdrawal.id,
+            details: { transferId: body.id, status, message: body.message || null, provider: 'sharkbanking' },
+          },
+        }),
+      ]);
+      console.log(`[WEBHOOK] Shark Hub transfer ${body.id} falhou (${status}) → withdrawal ${withdrawal.id} revertido`);
+    } else if (isSuccess) {
+      await prisma.withdrawal.update({
+        where: { id: withdrawal.id },
+        data: {
+          completed_at: withdrawal.completed_at || new Date(),
+          admin_notes: `${withdrawal.admin_notes || ''}\n[Shark Hub webhook] transfer ${body.id} → COMPLETED (E2E: ${body?.data?.e2e || '-'})`.trim(),
+        },
+      });
+      console.log(`[WEBHOOK] Shark Hub transfer ${body.id} COMPLETED → withdrawal ${withdrawal.id} confirmado`);
+    }
+
     return reply.send({ received: true });
   });
 

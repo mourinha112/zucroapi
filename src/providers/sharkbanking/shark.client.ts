@@ -1,6 +1,6 @@
 import { env } from '../../config/env';
 
-const BASE_URL = 'https://api.sharkbanking.com.br/v1';
+const BASE_URL = 'https://api.sharkhubsubadquirente.com/v1';
 
 interface SharkResponse {
   success: boolean;
@@ -8,45 +8,42 @@ interface SharkResponse {
   data: any;
 }
 
-/**
- * Gera o header de autenticação Basic Auth
- */
-const getAuthHeader = (): string => {
-  const credentials = Buffer.from(`${env.SHARK_PUBLIC_KEY}:${env.SHARK_SECRET_KEY}`).toString('base64');
-  return `Basic ${credentials}`;
+type SharkAuthMode = 'api' | 'withdraw';
+
+const resolveToken = (mode: SharkAuthMode): string => {
+  if (mode === 'withdraw') {
+    return env.SHARK_WITHDRAW_KEY || '';
+  }
+  return env.SHARK_API_KEY || '';
 };
 
-/**
- * Faz requisições para a API do SharkBanking
- */
 export const sharkRequest = async (
   method: string,
   endpoint: string,
   data: any = null,
-  extraHeaders: Record<string, string> = {}
+  options: { auth?: SharkAuthMode; extraHeaders?: Record<string, string> } = {}
 ): Promise<SharkResponse> => {
   const url = `${BASE_URL}${endpoint}`;
+  const authMode: SharkAuthMode = options.auth || 'api';
+  const token = resolveToken(authMode);
 
   const headers: Record<string, string> = {
-    'Authorization': getAuthHeader(),
+    'Authorization': `Bearer ${token}`,
     'Content-Type': 'application/json',
     'Accept': 'application/json',
-    ...extraHeaders,
+    ...(options.extraHeaders || {}),
   };
 
-  const options: RequestInit = {
-    method,
-    headers,
-  };
+  const init: RequestInit = { method, headers };
 
   if (data && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
-    options.body = JSON.stringify(data);
+    init.body = JSON.stringify(data);
   }
 
-  console.log(`[SHARK] ${method} ${endpoint}`);
+  console.log(`[SHARK] ${method} ${endpoint} (auth=${authMode})`);
 
   try {
-    const response = await fetch(url, options);
+    const response = await fetch(url, init);
     const responseData = await response.json().catch(() => ({}));
 
     console.log(`[SHARK] Response ${response.status}:`, JSON.stringify(responseData).substring(0, 500));

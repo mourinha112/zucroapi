@@ -284,8 +284,8 @@ export async function adminRoutes(app: FastifyInstance) {
       const providers = [
         {
           id: 'sharkbanking',
-          name: 'SharkBanking',
-          configured: !!(env.SHARK_PUBLIC_KEY && env.SHARK_SECRET_KEY),
+          name: 'Shark Hub',
+          configured: !!env.SHARK_API_KEY,
           balance: shark,
         },
         {
@@ -589,6 +589,7 @@ export async function adminRoutes(app: FastifyInstance) {
             pixKey: withdrawal.pix_key!,
             pixKeyType: withdrawal.pix_key_type || 'cpf',
             description: `Saque ZucroPay - ${seller?.name || 'Usuario'}`,
+            externalRef: id,
           });
         }
 
