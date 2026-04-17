@@ -31,6 +31,76 @@ function verifySharkSignature(rawBody: string | undefined, headerSignature: stri
   }
 }
 
+function isSharkTransferPayload(body: any): boolean {
+  if (!body || typeof body !== 'object') return false;
+  if (body?.data?.pixKey || body?.data?.pixKeyType) return true;
+  if (body?.pix?.pixKey || body?.pix?.pixKeyType) return true;
+  const status = String(body?.status || '').toUpperCase();
+  const transferOnly = ['IN_QUEUE', 'IN_ANALYSIS', 'APPROVED', 'COMPLETED', 'FAILED'];
+  if (transferOnly.includes(status) && !body?.payer && !body?.items) return true;
+  return false;
+}
+
+async function handleSharkTransferWebhook(body: any): Promise<void> {
+  if (!body?.id || !body?.status) {
+    console.log('[WEBHOOK] ⚠️ Shark Hub Transfer: payload sem id/status');
+    return;
+  }
+
+  const status = String(body.status || '').toUpperCase();
+  const withdrawalId = body.externalRef ? String(body.externalRef) : null;
+
+  if (!withdrawalId) {
+    console.log('[WEBHOOK] Shark Hub Transfer sem externalRef, apenas loggando');
+    return;
+  }
+
+  const withdrawal = await prisma.withdrawal.findUnique({ where: { id: withdrawalId } });
+  if (!withdrawal) {
+    console.log(`[WEBHOOK] Withdrawal ${withdrawalId} não encontrado`);
+    return;
+  }
+
+  const isFailure = status === 'FAILED' || status === 'REFUSED';
+  const isSuccess = status === 'COMPLETED';
+
+  if (isFailure && withdrawal.status !== 'rejected' && withdrawal.status !== 'completed') {
+    await prisma.$transaction([
+      prisma.withdrawal.update({
+        where: { id: withdrawal.id },
+        data: {
+          status: 'rejected',
+          rejection_reason: `Shark Hub: ${status}${body.message ? ` - ${body.message}` : ''}`,
+          admin_notes: `${withdrawal.admin_notes || ''}\n[Shark Hub webhook] transfer ${body.id} → ${status}`.trim(),
+        },
+      }),
+      prisma.user.update({
+        where: { id: withdrawal.user_id },
+        data: { balance: { increment: withdrawal.amount } },
+      }),
+      prisma.adminLog.create({
+        data: {
+          admin_id: withdrawal.reviewed_by || withdrawal.user_id,
+          action: 'withdrawal_transfer_failed',
+          target_type: 'withdrawal',
+          target_id: withdrawal.id,
+          details: { transferId: body.id, status, message: body.message || null, provider: 'sharkbanking' },
+        },
+      }),
+    ]);
+    console.log(`[WEBHOOK] Shark Hub transfer ${body.id} falhou (${status}) → withdrawal ${withdrawal.id} revertido`);
+  } else if (isSuccess) {
+    await prisma.withdrawal.update({
+      where: { id: withdrawal.id },
+      data: {
+        completed_at: withdrawal.completed_at || new Date(),
+        admin_notes: `${withdrawal.admin_notes || ''}\n[Shark Hub webhook] transfer ${body.id} → COMPLETED (E2E: ${body?.data?.e2e || '-'})`.trim(),
+      },
+    });
+    console.log(`[WEBHOOK] Shark Hub transfer ${body.id} COMPLETED → withdrawal ${withdrawal.id} confirmado`);
+  }
+}
+
 // Função para enviar postback/webhook para o usuário
 async function sendUserWebhook(userId: string, event: string, data: any) {
   const webhooks = await prisma.webhook.findMany({
@@ -400,6 +470,18 @@ export async function webhooksRoutes(app: FastifyInstance) {
     console.log('[WEBHOOK] Status:', body?.status, 'Id:', body?.id);
     console.log('[WEBHOOK] Body:', JSON.stringify(body, null, 2));
 
+    // Se for payload de saque, delega pro handler de transfer (roteamento unificado).
+    if (isSharkTransferPayload(body)) {
+      console.log('[WEBHOOK] 🔁 /shark detectou payload de transferência, delegando');
+      const sigResult = verifySharkSignature(rawBody, signature, env.SHARK_WEBHOOK_SECRET_TRANSFER);
+      if (sigResult === 'invalid') {
+        console.log('[WEBHOOK] ⚠️ Shark Hub Transfer: assinatura HMAC inválida');
+        return reply.status(401).send({ error: 'invalid signature' });
+      }
+      await handleSharkTransferWebhook(body);
+      return reply.send({ received: true });
+    }
+
     const sigResult = verifySharkSignature(rawBody, signature, env.SHARK_WEBHOOK_SECRET);
     if (sigResult === 'invalid') {
       console.log('[WEBHOOK] ⚠️ Shark Hub: assinatura HMAC inválida');
@@ -569,6 +651,7 @@ export async function webhooksRoutes(app: FastifyInstance) {
   });
 
   // ========== Webhook do Shark Hub (Saque / Transferência) ==========
+  // Mantido como alias; o /shark também aceita payload de saque via detecção.
   app.post('/shark/transfer', {
     preHandler: [webhookRateLimit],
   }, async (request, reply) => {
@@ -589,64 +672,7 @@ export async function webhooksRoutes(app: FastifyInstance) {
       console.log('[WEBHOOK] ℹ️ Shark Hub Transfer: pulando validação HMAC (rawBody indisponível)');
     }
 
-    if (!body?.id || !body?.status) {
-      console.log('[WEBHOOK] ⚠️ Shark Hub Transfer: payload sem id/status');
-      return reply.send({ received: true });
-    }
-
-    const status = String(body.status || '').toUpperCase();
-    const withdrawalId = body.externalRef ? String(body.externalRef) : null;
-
-    if (!withdrawalId) {
-      console.log('[WEBHOOK] Shark Hub Transfer sem externalRef, apenas loggando');
-      return reply.send({ received: true });
-    }
-
-    const withdrawal = await prisma.withdrawal.findUnique({ where: { id: withdrawalId } });
-    if (!withdrawal) {
-      console.log(`[WEBHOOK] Withdrawal ${withdrawalId} não encontrado`);
-      return reply.send({ received: true });
-    }
-
-    const isFailure = status === 'FAILED' || status === 'REFUSED';
-    const isSuccess = status === 'COMPLETED';
-
-    if (isFailure && withdrawal.status !== 'rejected' && withdrawal.status !== 'completed') {
-      await prisma.$transaction([
-        prisma.withdrawal.update({
-          where: { id: withdrawal.id },
-          data: {
-            status: 'rejected',
-            rejection_reason: `Shark Hub: ${status}${body.message ? ` - ${body.message}` : ''}`,
-            admin_notes: `${withdrawal.admin_notes || ''}\n[Shark Hub webhook] transfer ${body.id} → ${status}`.trim(),
-          },
-        }),
-        prisma.user.update({
-          where: { id: withdrawal.user_id },
-          data: { balance: { increment: withdrawal.amount } },
-        }),
-        prisma.adminLog.create({
-          data: {
-            admin_id: withdrawal.reviewed_by || withdrawal.user_id,
-            action: 'withdrawal_transfer_failed',
-            target_type: 'withdrawal',
-            target_id: withdrawal.id,
-            details: { transferId: body.id, status, message: body.message || null, provider: 'sharkbanking' },
-          },
-        }),
-      ]);
-      console.log(`[WEBHOOK] Shark Hub transfer ${body.id} falhou (${status}) → withdrawal ${withdrawal.id} revertido`);
-    } else if (isSuccess) {
-      await prisma.withdrawal.update({
-        where: { id: withdrawal.id },
-        data: {
-          completed_at: withdrawal.completed_at || new Date(),
-          admin_notes: `${withdrawal.admin_notes || ''}\n[Shark Hub webhook] transfer ${body.id} → COMPLETED (E2E: ${body?.data?.e2e || '-'})`.trim(),
-        },
-      });
-      console.log(`[WEBHOOK] Shark Hub transfer ${body.id} COMPLETED → withdrawal ${withdrawal.id} confirmado`);
-    }
-
+    await handleSharkTransferWebhook(body);
     return reply.send({ received: true });
   });
 
