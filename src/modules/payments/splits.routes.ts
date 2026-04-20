@@ -33,10 +33,9 @@ export async function splitsRoutes(app: FastifyInstance) {
     const q = query.trim().toLowerCase();
     const digits = q.replace(/\D/g, '');
 
+    // Busca sem filtro de status para retornar erro específico
     const user = await prisma.user.findFirst({
       where: {
-        account_status: 'active',
-        id: { not: decoded.id }, // não pode cadastrar a si mesmo
         OR: [
           { email: q },
           ...(digits.length >= 11 ? [{ cpf_cnpj: digits }] : []),
@@ -48,17 +47,38 @@ export async function splitsRoutes(app: FastifyInstance) {
         email: true,
         cpf_cnpj: true,
         avatar: true,
+        account_status: true,
       },
     });
 
     if (!user) {
       return reply.status(404).send({
         success: false,
-        error: 'Usuário não encontrado ou não está ativo',
+        error: 'Nenhuma conta ZucroPay encontrada com esse email/documento. Peça para o parceiro criar uma conta em dashboard.appzucropay.com.',
       });
     }
 
-    return reply.send({ success: true, recipient: user });
+    if (user.id === decoded.id) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Você não pode adicionar a si mesmo como parceiro no split.',
+      });
+    }
+
+    const allowedStatuses = ['active', 'approved'];
+    if (!allowedStatuses.includes(user.account_status)) {
+      const label =
+        user.account_status === 'pending' ? 'ainda não concluiu a verificação de identidade (KYC)' :
+        user.account_status === 'blocked' ? 'está bloqueada' :
+        `está com status "${user.account_status}"`;
+      return reply.status(400).send({
+        success: false,
+        error: `A conta do parceiro ${label}. Peça para ele completar o cadastro antes de adicioná-lo ao split.`,
+      });
+    }
+
+    const { account_status, ...publicUser } = user;
+    return reply.send({ success: true, recipient: publicUser });
   });
 
   // ========== Listar regras de split de um produto ==========
@@ -152,13 +172,16 @@ export async function splitsRoutes(app: FastifyInstance) {
     }
 
     const recipient = await prisma.user.findFirst({
-      where: { id: body.recipient_id, account_status: 'active' },
+      where: {
+        id: body.recipient_id,
+        account_status: { in: ['active', 'approved'] },
+      },
       select: { id: true },
     });
     if (!recipient) {
       return reply.status(400).send({
         success: false,
-        error: 'Recipient não existe ou não está ativo',
+        error: 'Recipient não existe ou não está com a conta ativa/aprovada',
       });
     }
 

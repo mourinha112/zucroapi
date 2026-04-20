@@ -1818,7 +1818,7 @@ export async function adminRoutes(app: FastifyInstance) {
             blocked_reason: body.blocked_reason || 'Marcado como seller de risco',
           }),
           ...(!body.block && body.is_risky === false && {
-            account_status: 'approved',
+            account_status: 'active',
             blocked_at: null,
             blocked_by: null,
             blocked_reason: null,

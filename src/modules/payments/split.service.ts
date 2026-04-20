@@ -66,7 +66,7 @@ export async function validateSplits(
   const recipients = await prisma.user.findMany({
     where: {
       id: { in: normalized.map((s) => s.recipient_id) },
-      account_status: 'active',
+      account_status: { in: ['active', 'approved'] },
     },
     select: { id: true },
   });
