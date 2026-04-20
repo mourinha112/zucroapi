@@ -1822,6 +1822,194 @@ $charge = json_decode($response, true);</code></pre>
           As regras fixas do produto são <strong>somadas</strong> ao <code>split[]</code> dinâmico da API. Se o mesmo <code>recipient_id</code> aparecer nos dois, o valor da API sobrescreve o fixo.
         </div>
 
+        <h2>Uso em Bot de Telegram</h2>
+        <p>Um bot de Telegram é só um <strong>backend HTTP como qualquer outro</strong> — ele conversa com a API da ZucroPay igual um e-commerce ou um checkout próprio. Split, API Key e webhook funcionam exatamente do mesmo jeito.</p>
+
+        <div class="card-grid cols-3">
+          <div class="card">
+            <div class="card-icon">🔑</div>
+            <h3>API Key</h3>
+            <p>O dono do bot precisa ter uma conta ZucroPay e gerar a API Key em <strong>Dashboard → Integrações</strong>.</p>
+          </div>
+          <div class="card">
+            <div class="card-icon">👥</div>
+            <h3>Recipients</h3>
+            <p>Cada <code>recipient_id</code> do split precisa ser um usuário ZucroPay ativo (afiliado, coprodutor etc.).</p>
+          </div>
+          <div class="card">
+            <div class="card-icon">🌐</div>
+            <h3>Servidor público</h3>
+            <p>Para receber postbacks do pagamento confirmado, o bot precisa rodar num servidor com URL HTTPS pública.</p>
+          </div>
+        </div>
+
+        <h3>Fluxo Resumido</h3>
+        <ol>
+          <li>Usuário clica em um botão no Telegram (ex: <code>/comprar</code>).</li>
+          <li>O bot chama <code>POST /api/v1/charges</code> com <code>split[]</code> (ex: 10% para o afiliado que indicou o comprador).</li>
+          <li>A resposta traz <code>pix.qr_code</code> (imagem base64) e <code>pix.copy_paste</code>.</li>
+          <li>O bot envia o QR Code via <code>sendPhoto</code> e o copia-e-cola via <code>sendMessage</code>.</li>
+          <li>Cliente paga. ZucroPay envia <code>charge.paid</code> no <code>postback_url</code> do bot.</li>
+          <li>O bot libera o produto (acesso a um grupo VIP, envio de arquivo, ativação de assinatura etc.) e avisa o usuário no chat.</li>
+          <li>Afiliado recebe os 10% automaticamente no saldo ZucroPay dele — sem o dono precisar transferir manualmente.</li>
+        </ol>
+
+        <h3>Exemplo Completo (Node.js + node-telegram-bot-api)</h3>
+        <div class="code-tabs">
+          <div class="code-tab-buttons">
+            <button class="code-tab-btn active" data-tab="tg-node">Node.js</button>
+            <button class="code-tab-btn" data-tab="tg-python">Python (aiogram)</button>
+          </div>
+          <div class="code-tab-content active" data-tab="tg-node">
+            <div class="code-block">
+              <pre><code class="language-javascript">import TelegramBot from 'node-telegram-bot-api';
+
+const bot = new TelegramBot(process.env.TG_TOKEN, { polling: true });
+const ZUCRO_KEY = process.env.ZUCRO_KEY;
+
+// /comprar → cria cobrança PIX com split pro afiliado que indicou
+bot.onText(/\/comprar(?:\s+ref=(\w+))?/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const affiliateId = match[1]; // recipient_id do afiliado, se veio no comando
+
+  const res = await fetch('https://api.appzucropay.com/api/v1/charges', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': ZUCRO_KEY,
+    },
+    body: JSON.stringify({
+      billing_type: 'PIX',
+      value: 97.00,
+      description: 'Acesso VIP — Grupo Premium',
+      customer: {
+        name: msg.from.first_name,
+        email: `${msg.from.id}@telegram.local`,
+      },
+      external_reference: `tg_${msg.from.id}_${Date.now()}`,
+      postback_url: 'https://meu-bot.com/zucro/webhook',
+      ...(affiliateId && {
+        split: [{ recipient_id: affiliateId, percent: 10 }],
+      }),
+    }),
+  });
+
+  const charge = await res.json();
+
+  // Envia QR Code como imagem
+  const qrBuffer = Buffer.from(charge.pix.qr_code.split(',')[1], 'base64');
+  await bot.sendPhoto(chatId, qrBuffer, {
+    caption: `💠 *Pague R$ 97,00 via PIX*\nApós o pagamento, você recebe o acesso automaticamente.`,
+    parse_mode: 'Markdown',
+  });
+
+  // Envia código copia-e-cola
+  await bot.sendMessage(chatId,
+    `*PIX Copia e Cola:*\n\`${charge.pix.copy_paste}\``,
+    { parse_mode: 'Markdown' }
+  );
+});
+
+// Webhook HTTPS para receber o postback da ZucroPay
+import express from 'express';
+const app = express();
+app.use(express.json());
+
+app.post('/zucro/webhook', async (req, res) => {
+  const { event, data } = req.body;
+  if (event === 'charge.paid') {
+    const [, telegramUserId] = data.external_reference.match(/^tg_(\d+)_/) || [];
+    if (telegramUserId) {
+      await bot.sendMessage(telegramUserId,
+        `✅ Pagamento confirmado! Acesso liberado: https://t.me/+token_vip`
+      );
+    }
+  }
+  res.sendStatus(200);
+});
+
+app.listen(3000);</code></pre>
+              <button class="copy-btn">Copiar</button>
+            </div>
+          </div>
+          <div class="code-tab-content" data-tab="tg-python">
+            <div class="code-block">
+              <pre><code class="language-python">import os, base64, httpx
+from aiogram import Bot, Dispatcher, types
+from aiohttp import web
+
+bot = Bot(token=os.environ['TG_TOKEN'])
+dp = Dispatcher()
+ZUCRO_KEY = os.environ['ZUCRO_KEY']
+
+@dp.message(commands=['comprar'])
+async def comprar(message: types.Message):
+    # /comprar ref=USER_ID_AFILIADO (opcional)
+    parts = message.text.split()
+    affiliate_id = next((p.split('=')[1] for p in parts if p.startswith('ref=')), None)
+
+    payload = {
+        'billing_type': 'PIX',
+        'value': 97.00,
+        'description': 'Acesso VIP',
+        'customer': {
+            'name': message.from_user.first_name,
+            'email': f'{message.from_user.id}@telegram.local',
+        },
+        'external_reference': f'tg_{message.from_user.id}_{int(message.date.timestamp())}',
+        'postback_url': 'https://meu-bot.com/zucro/webhook',
+    }
+    if affiliate_id:
+        payload['split'] = [{'recipient_id': affiliate_id, 'percent': 10}]
+
+    async with httpx.AsyncClient() as client:
+        r = await client.post(
+            'https://api.appzucropay.com/api/v1/charges',
+            headers={'X-API-Key': ZUCRO_KEY},
+            json=payload,
+        )
+    charge = r.json()
+
+    qr_bytes = base64.b64decode(charge['pix']['qr_code'].split(',')[1])
+    await message.answer_photo(qr_bytes, caption='💠 Pague R$ 97,00 via PIX')
+    await message.answer(f"*PIX Copia e Cola:*\n`{charge['pix']['copy_paste']}`", parse_mode='Markdown')
+
+
+async def webhook(request):
+    body = await request.json()
+    if body.get('event') == 'charge.paid':
+        ref = body['data'].get('external_reference', '')
+        if ref.startswith('tg_'):
+            tg_id = int(ref.split('_')[1])
+            await bot.send_message(tg_id, '✅ Pagamento confirmado! Acesso liberado.')
+    return web.Response(text='ok')
+
+app = web.Application()
+app.router.add_post('/zucro/webhook', webhook)
+web.run_app(app, port=3000)</code></pre>
+              <button class="copy-btn">Copiar</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout info">
+          <strong>Dica:</strong> use o <code>external_reference</code> como ponte entre a cobrança e o <code>chat_id</code> do Telegram (ex: <code>tg_{telegram_user_id}_{timestamp}</code>). Assim, quando o postback chegar, você sabe para quem liberar o produto no chat.
+        </div>
+
+        <h3>Cenário: Bot de Grupo VIP com Afiliados</h3>
+        <p>Esse é o caso de uso mais comum — e onde split via bot brilha:</p>
+        <ol>
+          <li>Você vende acesso a um grupo VIP no Telegram por R$ 97.</li>
+          <li>Cria um link de afiliado: <code>https://t.me/seu_bot?start=ref_userXYZ</code>.</li>
+          <li>O afiliado divulga o link e ganha <strong>10% por venda</strong>.</li>
+          <li>Cliente clica, entra no bot, paga. O bot gera cobrança com <code>split: [{ recipient_id: "userXYZ", percent: 10 }]</code>.</li>
+          <li>Confirmação: cliente entra no grupo automaticamente e R$ 9,70 cai na conta ZucroPay do afiliado <strong>no mesmo segundo</strong>.</li>
+        </ol>
+
+        <div class="callout warning">
+          <strong>Atenção:</strong> a Telegram Bot API (<code>api.telegram.org</code>) e a ZucroPay API (<code>api.appzucropay.com</code>) são <strong>serviços separados</strong>. O bot precisa autenticar nos dois: <code>bot token</code> no Telegram + <code>X-API-Key</code> na ZucroPay. Nunca exponha nenhum dos dois no código-fonte público.
+        </div>
+
         <h2>Erros Comuns</h2>
         <div class="params-table">
           <div class="param-row">
