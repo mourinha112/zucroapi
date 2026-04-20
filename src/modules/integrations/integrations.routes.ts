@@ -35,9 +35,20 @@ const createChargeSchema = z.object({
   external_reference: z.string().optional(),
   callback_url: z.string().url().optional(),
   postback_url: z.string().url().optional(),
+  split: z.array(z.object({
+    recipient_id: z.string().min(1),
+    amount: z.number().positive().optional(),
+    percent: z.number().positive().max(99.99).optional(),
+    description: z.string().optional(),
+  })).optional(),
 });
 
 import { sendChargePostback } from '../../utils/postback';
+import {
+  validateSplits,
+  persistPaymentSplits,
+  SplitInput,
+} from '../payments/split.service';
 
 export async function integrationsRoutes(app: FastifyInstance) {
   // ========================================
@@ -173,6 +184,26 @@ export async function integrationsRoutes(app: FastifyInstance) {
         const sellerProvider = (user as any).payment_provider || 'eusouzucropay';
         let chargeRes: { success: boolean; transactionId?: string; pixCode?: string; pixQrCode?: string; error?: string; debug?: any };
 
+        // Validar splits antes de chamar o provider (evita cobrança órfã no gateway)
+        let splitsToPersist: SplitInput[] = [];
+        if (body.split && body.split.length > 0) {
+          const dynamicSplits: SplitInput[] = body.split.map((s) => ({
+            recipient_id: s.recipient_id,
+            type: s.percent != null ? 'percent' : 'amount',
+            amount: s.amount,
+            percent: s.percent,
+            description: s.description ?? null,
+          }));
+          const validation = await validateSplits(dynamicSplits, body.value, user.id);
+          if ('error' in validation) {
+            return reply.status(400).send({
+              error: validation.error,
+              code: 'INVALID_SPLIT',
+            });
+          }
+          splitsToPersist = validation.normalized;
+        }
+
         const chargePayload = {
           value: body.value,
           description,
@@ -242,6 +273,11 @@ export async function integrationsRoutes(app: FastifyInstance) {
           },
         });
 
+        // Persistir splits (se houver) e marcar payment.has_split = true
+        if (splitsToPersist.length > 0) {
+          await persistPaymentSplits(payment.id, splitsToPersist);
+        }
+
         // Notificação push de venda pendente
         try {
           await notifySalePending(user.id, body.value, payment.id);
@@ -263,6 +299,16 @@ export async function integrationsRoutes(app: FastifyInstance) {
             copy_paste: chargeRes.pixCode,
             expires_at: new Date(Date.now() + 3600000).toISOString(),
           },
+          ...(splitsToPersist.length > 0 && {
+            has_split: true,
+            split: splitsToPersist.map((s) => ({
+              recipient_id: s.recipient_id,
+              type: s.type,
+              amount: s.amount ?? null,
+              percent: s.percent ?? null,
+              description: s.description ?? null,
+            })),
+          }),
           created_at: payment.created_at,
         };
       }

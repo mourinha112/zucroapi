@@ -71,6 +71,7 @@
           <a href="#payments" class="nav-link" data-section="payments">Pagamentos</a>
           <a href="#webhooks" class="nav-link" data-section="webhooks">Webhooks</a>
           <a href="#fees" class="nav-link" data-section="fees">Taxas e Tarifas</a>
+          <a href="#splits" class="nav-link" data-section="splits">Split de Pagamento</a>
         </div>
         
         <div class="nav-section">
@@ -1584,6 +1585,263 @@ if __name__ == '__main__':
         <p>Após 30 dias, o valor é <strong>automaticamente liberado</strong> para seu saldo disponível.</p>
       </section>
 
+      <!-- Splits Section -->
+      <section id="splits" class="content-section">
+        <div class="section-header">
+          <h1>Split de Pagamento</h1>
+          <p class="section-description">Divida automaticamente uma mesma cobrança entre várias contas ZucroPay</p>
+        </div>
+
+        <p class="lead">O <strong>split</strong> permite que uma única cobrança seja dividida automaticamente entre <strong>vários recipients</strong> (outras contas ZucroPay) no momento da confirmação do pagamento. O cliente final paga <strong>uma única vez</strong> e a plataforma já credita cada parte na conta correta — sem transferências manuais.</p>
+
+        <div class="callout info">
+          O dono da cobrança (dono da API Key) sempre recebe <strong>o restante</strong> após os splits e absorve a taxa do gateway. Não é preciso somar 100% — os recipients recebem o valor configurado e o resto vai para você.
+        </div>
+
+        <h2>Casos de Uso</h2>
+        <div class="card-grid cols-3">
+          <div class="card">
+            <div class="card-icon">🤝</div>
+            <h3>Coprodução</h3>
+            <p>Produtor principal + coprodutor dividindo a venda de um infoproduto.</p>
+          </div>
+          <div class="card">
+            <div class="card-icon">🎯</div>
+            <h3>Afiliados</h3>
+            <p>Pague a comissão do afiliado no mesmo instante do pagamento.</p>
+          </div>
+          <div class="card">
+            <div class="card-icon">🛒</div>
+            <h3>Marketplace</h3>
+            <p>Plataforma retém comissão e credita o vendedor automaticamente.</p>
+          </div>
+        </div>
+
+        <h2>Regras</h2>
+        <div class="params-table">
+          <div class="param-row">
+            <div class="param-name">Recipient ativo</div>
+            <div class="param-type">—</div>
+            <div class="param-desc">Cada <code>recipient_id</code> precisa ser um usuário com conta ZucroPay <strong>ativa</strong>.</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">amount <em>ou</em> percent</div>
+            <div class="param-type">—</div>
+            <div class="param-desc">Cada split informa <strong>um dos dois</strong> (valor fixo em R$ ou porcentagem entre 0 e 99.99). Nunca os dois juntos.</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">Soma menor que o total</div>
+            <div class="param-type">—</div>
+            <div class="param-desc">A soma dos splits <strong>não pode</strong> igualar ou exceder o valor da cobrança. O resto fica com o dono.</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">Limite por cobrança</div>
+            <div class="param-type">—</div>
+            <div class="param-desc">No máximo <strong>10 splits</strong> por cobrança.</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">Sem auto-split</div>
+            <div class="param-type">—</div>
+            <div class="param-desc">O dono da cobrança não pode aparecer na lista de splits.</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">Taxa e chargeback</div>
+            <div class="param-type">—</div>
+            <div class="param-desc">A taxa do gateway e eventuais estornos são absorvidos pelo dono da cobrança. Os recipients recebem o valor "limpo" configurado.</div>
+          </div>
+        </div>
+
+        <h2>Como usar via API</h2>
+        <p>Basta adicionar o campo <code>split</code> no body da requisição <code>POST /api/v1/charges</code>:</p>
+
+        <div class="code-tabs">
+          <div class="code-tab-buttons">
+            <button class="code-tab-btn active" data-tab="split-curl">cURL</button>
+            <button class="code-tab-btn" data-tab="split-js">JavaScript</button>
+            <button class="code-tab-btn" data-tab="split-php">PHP</button>
+          </div>
+          <div class="code-tab-content active" data-tab="split-curl">
+            <div class="code-block">
+              <pre><code class="language-bash">curl -X POST https://api.appzucropay.com/api/v1/charges \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: zp_sua_api_key_aqui" \
+  -d '{
+    "billing_type": "PIX",
+    "value": 100.00,
+    "description": "Curso de React",
+    "customer": {
+      "name": "Cliente Final",
+      "email": "cliente@email.com",
+      "cpf_cnpj": "12345678900"
+    },
+    "external_reference": "PEDIDO-001",
+    "postback_url": "https://meusite.com/webhooks/zucropay",
+    "split": [
+      { "recipient_id": "user_coprodutor_uuid", "percent": 25 },
+      { "recipient_id": "user_afiliado_uuid", "amount": 10.00 }
+    ]
+  }'</code></pre>
+              <button class="copy-btn">Copiar</button>
+            </div>
+          </div>
+          <div class="code-tab-content" data-tab="split-js">
+            <div class="code-block">
+              <pre><code class="language-javascript">const response = await fetch('https://api.appzucropay.com/api/v1/charges', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-API-Key': 'zp_sua_api_key_aqui'
+  },
+  body: JSON.stringify({
+    billing_type: 'PIX',
+    value: 100.00,
+    description: 'Curso de React',
+    customer: {
+      name: 'Cliente Final',
+      email: 'cliente@email.com',
+      cpf_cnpj: '12345678900'
+    },
+    external_reference: 'PEDIDO-001',
+    postback_url: 'https://meusite.com/webhooks/zucropay',
+    split: [
+      { recipient_id: 'user_coprodutor_uuid', percent: 25 },
+      { recipient_id: 'user_afiliado_uuid', amount: 10.00 }
+    ]
+  })
+});
+
+const charge = await response.json();
+// charge.has_split === true
+// charge.split === [...]</code></pre>
+              <button class="copy-btn">Copiar</button>
+            </div>
+          </div>
+          <div class="code-tab-content" data-tab="split-php">
+            <div class="code-block">
+              <pre><code class="language-php">&lt;?php
+$response = file_get_contents('https://api.appzucropay.com/api/v1/charges', false, stream_context_create([
+  'http' =&gt; [
+    'method' =&gt; 'POST',
+    'header' =&gt; [
+      'Content-Type: application/json',
+      'X-API-Key: zp_sua_api_key_aqui',
+    ],
+    'content' =&gt; json_encode([
+      'billing_type' =&gt; 'PIX',
+      'value' =&gt; 100.00,
+      'description' =&gt; 'Curso de React',
+      'customer' =&gt; [
+        'name' =&gt; 'Cliente Final',
+        'email' =&gt; 'cliente@email.com',
+        'cpf_cnpj' =&gt; '12345678900',
+      ],
+      'external_reference' =&gt; 'PEDIDO-001',
+      'postback_url' =&gt; 'https://meusite.com/webhooks/zucropay',
+      'split' =&gt; [
+        [ 'recipient_id' =&gt; 'user_coprodutor_uuid', 'percent' =&gt; 25 ],
+        [ 'recipient_id' =&gt; 'user_afiliado_uuid', 'amount' =&gt; 10.00 ],
+      ],
+    ]),
+  ],
+]));
+
+$charge = json_decode($response, true);</code></pre>
+              <button class="copy-btn">Copiar</button>
+            </div>
+          </div>
+        </div>
+
+        <h2>Campos do objeto split[]</h2>
+        <div class="params-table">
+          <div class="param-row">
+            <div class="param-name">recipient_id <span class="required">obrigatório</span></div>
+            <div class="param-type">string</div>
+            <div class="param-desc">ID do usuário ZucroPay que receberá a parte (conta precisa estar <code>active</code>).</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">amount</div>
+            <div class="param-type">number</div>
+            <div class="param-desc">Valor fixo em reais (ex: <code>10.00</code>). Informe <strong>amount</strong> OU <strong>percent</strong>, nunca os dois.</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">percent</div>
+            <div class="param-type">number</div>
+            <div class="param-desc">Porcentagem do valor da cobrança entre <code>0.01</code> e <code>99.99</code>.</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">description</div>
+            <div class="param-type">string</div>
+            <div class="param-desc">Descrição livre do motivo do split (ex: <code>"Comissão de afiliado"</code>).</div>
+          </div>
+        </div>
+
+        <h2>Response</h2>
+        <p>Quando a cobrança é criada com split, a resposta inclui <code>has_split: true</code> e o array <code>split</code> normalizado:</p>
+        <div class="code-block">
+          <pre><code class="language-json">{
+  "id": "abc123-def456-ghi789",
+  "object": "charge",
+  "billing_type": "PIX",
+  "status": "PENDING",
+  "value": 100.00,
+  "net_value": 91.51,
+  "platform_fee": 8.49,
+  "pix": {
+    "txid": "zp1234567890abcdefghijklmnop",
+    "qr_code": "data:image/png;base64,iVBORw0KGgo...",
+    "copy_paste": "00020126580014br.gov.bcb.pix...",
+    "expires_at": "2026-04-20T15:00:00.000Z"
+  },
+  "has_split": true,
+  "split": [
+    { "recipient_id": "user_coprodutor_uuid", "type": "percent", "amount": null, "percent": 25, "description": null },
+    { "recipient_id": "user_afiliado_uuid",  "type": "amount",  "amount": 10,   "percent": null, "description": null }
+  ],
+  "created_at": "2026-04-20T14:00:00.000Z"
+}</code></pre>
+        </div>
+
+        <h2>Fluxo de Crédito</h2>
+        <ol>
+          <li>Cliente paga os R$ 100 via PIX.</li>
+          <li>O webhook do provider chega como <code>paid</code>.</li>
+          <li>A ZucroPay credita automaticamente: <strong>R$ 25</strong> para o coprodutor, <strong>R$ 10</strong> para o afiliado.</li>
+          <li>O dono da cobrança recebe o <strong>restante do net_value</strong> (R$ 100 − taxa − R$ 25 − R$ 10).</li>
+          <li>Cada recipient recebe o evento <code>charge.paid</code> no webhook dele (se configurado) e vê o crédito no extrato.</li>
+        </ol>
+
+        <h2>Split Fixo por Produto</h2>
+        <p>Se você tem <strong>parceiros recorrentes</strong> (ex: coprodutor que sempre leva 25% de todas as vendas de um produto), pode cadastrar a regra <strong>uma vez só</strong> no painel:</p>
+        <ol>
+          <li>Acesse <strong>Dashboard → Produtos → [seu produto] → aba Splits</strong>.</li>
+          <li>Adicione o parceiro por email ou CPF/CNPJ.</li>
+          <li>Escolha <strong>percentual (%)</strong> ou <strong>valor fixo (R$)</strong>.</li>
+          <li>Salve. Todas as cobranças desse produto passam a dividir automaticamente.</li>
+        </ol>
+        <div class="callout info">
+          As regras fixas do produto são <strong>somadas</strong> ao <code>split[]</code> dinâmico da API. Se o mesmo <code>recipient_id</code> aparecer nos dois, o valor da API sobrescreve o fixo.
+        </div>
+
+        <h2>Erros Comuns</h2>
+        <div class="params-table">
+          <div class="param-row">
+            <div class="param-name">INVALID_SPLIT</div>
+            <div class="param-type">400</div>
+            <div class="param-desc">Retornado quando: recipient inexistente ou inativo, soma ≥ valor total, mesmo recipient duplicado, dono tentando se incluir, ou mais de 10 splits.</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">recipient_id é obrigatório em cada split</div>
+            <div class="param-type">400</div>
+            <div class="param-desc">Algum item do array <code>split</code> veio sem <code>recipient_id</code>.</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">Cada split deve ter amount OU percent (nunca os dois)</div>
+            <div class="param-type">400</div>
+            <div class="param-desc">Você informou os dois campos ou nenhum deles em um mesmo item.</div>
+          </div>
+        </div>
+      </section>
+
       <!-- API Overview Section -->
       <section id="api-overview" class="content-section">
         <div class="section-header">
@@ -2045,6 +2303,11 @@ if __name__ == '__main__':
             <div class="param-name">callback_url</div>
             <div class="param-type">string</div>
             <div class="param-desc">Alias para <code>postback_url</code> (mantido por compatibilidade)</div>
+          </div>
+          <div class="param-row">
+            <div class="param-name">split</div>
+            <div class="param-type">array</div>
+            <div class="param-desc">Lista de divisões da cobrança entre outras contas ZucroPay. Cada item aceita <code>recipient_id</code> (obrigatório) + <code>amount</code> (R$) <strong>OU</strong> <code>percent</code> (0–99.99). Máx. 10 splits. Veja <a href="#splits" data-navigate="splits">Split de Pagamento</a></div>
           </div>
         </div>
 
