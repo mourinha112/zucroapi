@@ -542,6 +542,31 @@ export async function memberAreaRoutes(app: FastifyInstance) {
     return reply.send({ success: true });
   });
 
+  // Public endpoint (no auth) — basic product info for public landing/waitlist page
+  app.get('/:productId/public', {
+    preHandler: [standardRateLimit],
+  }, async (request, reply) => {
+    const { productId } = request.params as { productId: string };
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
+      select: {
+        id: true,
+        name: true,
+        subtitle: true,
+        description: true,
+        image_url: true,
+        cover_url: true,
+        member_area_enabled: true,
+        product_type: true,
+        active: true,
+      },
+    });
+    if (!product || !product.active) {
+      return reply.status(404).send({ error: 'Produto não encontrado' });
+    }
+    return reply.send({ success: true, product });
+  });
+
   // Public endpoint (no auth) — anyone with the link can subscribe
   app.post('/:productId/waitlist/public', {
     preHandler: [standardRateLimit],
