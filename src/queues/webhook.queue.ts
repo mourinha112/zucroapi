@@ -9,6 +9,51 @@ import {
 import { notifySale } from '../modules/push/push.service';
 import { sendChargePostback } from '../utils/postback';
 import { sendUtmifyPostback } from '../modules/app-integrations/utmify.postback';
+import crypto from 'crypto';
+
+// ============================================
+// Member Area: criar acesso para o comprador
+// quando o pagamento de um produto com área de membros é confirmado.
+// ============================================
+async function ensureMemberAccessForPayment(paymentId: string) {
+  try {
+    const payment = await prisma.payment.findUnique({
+      where: { id: paymentId },
+      include: {
+        payment_link: { include: { product: true } },
+      },
+    });
+    if (!payment) return;
+
+    const product = payment.payment_link?.product;
+    if (!product || !product.member_area_enabled) return;
+
+    const meta = (payment.metadata as any) || {};
+    const buyerEmail: string | undefined = meta.customer_email || meta.buyer_email;
+    if (!buyerEmail) return;
+
+    const existing = await prisma.productMemberAccess.findFirst({
+      where: {
+        product_id: product.id,
+        buyer_email: buyerEmail.toLowerCase(),
+      },
+    });
+    if (existing) return;
+
+    await prisma.productMemberAccess.create({
+      data: {
+        product_id: product.id,
+        payment_id: payment.id,
+        buyer_email: buyerEmail.toLowerCase(),
+        buyer_name: meta.customer_name || null,
+        buyer_phone: meta.customer_phone || null,
+        access_token: crypto.randomBytes(24).toString('hex'),
+      },
+    });
+  } catch (err) {
+    console.error('[MemberAccess] Erro ao criar acesso:', err);
+  }
+}
 
 // ============================================
 // FILAS COM REDIS (ou mock sem Redis)
@@ -195,6 +240,9 @@ async function processPixPayment(data: PixWebhookJob) {
       },
     });
   }
+
+  // Criar acesso à área de membros (se aplicável)
+  await ensureMemberAccessForPayment(payment.id);
 
   // Enviar webhook para o usuário (se configurado)
   await sendUserWebhook(payment.user_id, 'payment.received', {

@@ -95,27 +95,185 @@ model Product {
   user_id               String    @db.Uuid
   name                  String    @db.VarChar(200)
   description           String?
+  subtitle              String?   @db.VarChar(200)
   price                 Decimal   @db.Decimal(10, 2)
   image_url             String?
+  cover_url             String?
   stock                 Int?
   active                Boolean   @default(true)
   marketplace_enabled   Boolean   @default(false)
   commission_percentage Decimal   @default(30) @db.Decimal(5, 2)
   fee_payer             String    @default("seller") @db.VarChar(10)
-  is_subscription       Boolean   @default(false) // Produto é uma assinatura?
-  subscription_plan_id  String?   @db.Uuid // Plano de assinatura associado
+  is_subscription       Boolean   @default(false)
+  subscription_plan_id  String?   @db.Uuid
+  product_type          String    @default("link") @db.VarChar(20) // 'link' | 'infoproduct'
+  member_area_enabled   Boolean   @default(false)
+  support_email         String?   @db.VarChar(180)
+  welcome_message       String?
+  slug                  String?   @unique @db.VarChar(120)
   created_at            DateTime  @default(now()) @db.Timestamptz
   updated_at            DateTime  @default(now()) @db.Timestamptz
 
   user                   User                    @relation(fields: [user_id], references: [id], onDelete: Cascade)
   payment_links          PaymentLink[]
   checkout_customization CheckoutCustomization?
-  order_bumps           OrderBump[]             @relation("OrderBumpMainProduct")
-  offer_order_bumps     OrderBump[]             @relation("OrderBumpOfferProduct")
-  coupons               Coupon[]
-  split_rules           ProductSplitRule[]
+  order_bumps            OrderBump[]             @relation("OrderBumpMainProduct")
+  offer_order_bumps      OrderBump[]             @relation("OrderBumpOfferProduct")
+  coupons                Coupon[]
+  split_rules            ProductSplitRule[]
+  modules                ProductModule[]
+  classes                ProductClass[]
+  pixels                 ProductTrackingPixel[]
+  waitlist               ProductWaitlist[]
+  member_accesses        ProductMemberAccess[]
 
   @@map("products")
+}
+
+model ProductModule {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id  String   @db.Uuid
+  title       String   @db.VarChar(200)
+  description String?
+  cover_url   String?
+  position    Int      @default(0)
+  active      Boolean  @default(true)
+  created_at  DateTime @default(now()) @db.Timestamptz
+  updated_at  DateTime @default(now()) @db.Timestamptz
+
+  product Product         @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  lessons ProductLesson[]
+
+  @@index([product_id])
+  @@index([product_id, position])
+  @@map("product_modules")
+}
+
+model ProductLesson {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  module_id        String   @db.Uuid
+  title            String   @db.VarChar(200)
+  description      String?
+  video_provider   String?  @db.VarChar(20)
+  video_url        String?
+  duration_seconds Int?
+  position         Int      @default(0)
+  is_free          Boolean  @default(false)
+  active           Boolean  @default(true)
+  created_at       DateTime @default(now()) @db.Timestamptz
+  updated_at       DateTime @default(now()) @db.Timestamptz
+
+  module    ProductModule           @relation(fields: [module_id], references: [id], onDelete: Cascade)
+  materials ProductLessonMaterial[]
+  progress  ProductLessonProgress[]
+
+  @@index([module_id])
+  @@index([module_id, position])
+  @@map("product_lessons")
+}
+
+model ProductLessonMaterial {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  lesson_id  String   @db.Uuid
+  name       String   @db.VarChar(200)
+  type       String   @default("file") @db.VarChar(20)
+  file_url   String
+  size_bytes BigInt?
+  position   Int      @default(0)
+  created_at DateTime @default(now()) @db.Timestamptz
+
+  lesson ProductLesson @relation(fields: [lesson_id], references: [id], onDelete: Cascade)
+
+  @@index([lesson_id])
+  @@map("product_lesson_materials")
+}
+
+model ProductClass {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id  String    @db.Uuid
+  name        String    @db.VarChar(200)
+  description String?
+  start_date  DateTime? @db.Timestamptz
+  end_date    DateTime? @db.Timestamptz
+  max_seats   Int?
+  active      Boolean   @default(true)
+  created_at  DateTime  @default(now()) @db.Timestamptz
+
+  product  Product               @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  accesses ProductMemberAccess[]
+
+  @@index([product_id])
+  @@map("product_classes")
+}
+
+model ProductTrackingPixel {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id   String   @db.Uuid
+  platform     String   @db.VarChar(30)
+  pixel_id     String?  @db.VarChar(120)
+  access_token String?
+  events       Json?
+  active       Boolean  @default(true)
+  created_at   DateTime @default(now()) @db.Timestamptz
+
+  product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@index([product_id])
+  @@map("product_tracking_pixels")
+}
+
+model ProductWaitlist {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id String   @db.Uuid
+  name       String   @db.VarChar(200)
+  email      String   @db.VarChar(200)
+  phone      String?  @db.VarChar(40)
+  metadata   Json?
+  created_at DateTime @default(now()) @db.Timestamptz
+
+  product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@unique([product_id, email])
+  @@index([product_id])
+  @@map("product_waitlist")
+}
+
+model ProductMemberAccess {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  product_id     String    @db.Uuid
+  payment_id     String?   @db.Uuid
+  buyer_email    String    @db.VarChar(200)
+  buyer_name     String?   @db.VarChar(200)
+  buyer_phone    String?   @db.VarChar(40)
+  access_token   String    @unique @db.VarChar(80)
+  class_id       String?   @db.Uuid
+  active         Boolean   @default(true)
+  created_at     DateTime  @default(now()) @db.Timestamptz
+  last_access_at DateTime? @db.Timestamptz
+
+  product  Product                 @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  class    ProductClass?           @relation(fields: [class_id], references: [id], onDelete: SetNull)
+  progress ProductLessonProgress[]
+
+  @@index([product_id])
+  @@index([buyer_email])
+  @@map("product_member_access")
+}
+
+model ProductLessonProgress {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  access_id        String    @db.Uuid
+  lesson_id        String    @db.Uuid
+  completed        Boolean   @default(false)
+  watched_seconds  Int       @default(0)
+  completed_at     DateTime? @db.Timestamptz
+  updated_at       DateTime  @default(now()) @db.Timestamptz
+
+  access ProductMemberAccess @relation(fields: [access_id], references: [id], onDelete: Cascade)
+  lesson ProductLesson       @relation(fields: [lesson_id], references: [id], onDelete: Cascade)
+
+  @@unique([access_id, lesson_id])
+  @@map("product_lesson_progress")
 }
 
 model CheckoutCustomization {

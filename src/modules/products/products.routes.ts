@@ -6,10 +6,17 @@ import { authenticate, standardRateLimit, createResourceRateLimit } from '../../
 const createProductSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
+  subtitle: z.string().optional(),
   price: z.number().positive(),
   image_url: z.string().optional(),
+  cover_url: z.string().optional(),
   stock: z.number().optional(),
   fee_payer: z.enum(['seller', 'buyer']).optional(),
+  is_subscription: z.boolean().optional(),
+  product_type: z.enum(['link', 'infoproduct']).optional(),
+  member_area_enabled: z.boolean().optional(),
+  support_email: z.string().email().optional().or(z.literal('')),
+  welcome_message: z.string().optional(),
 });
 
 export async function productsRoutes(app: FastifyInstance) {
@@ -45,10 +52,18 @@ export async function productsRoutes(app: FastifyInstance) {
         user_id: decoded.id,
         name: body.name,
         description: body.description,
+        subtitle: body.subtitle,
         price: body.price,
         image_url: body.image_url,
+        cover_url: body.cover_url,
         stock: body.stock,
         fee_payer: body.fee_payer || 'seller',
+        is_subscription: body.is_subscription || false,
+        product_type: body.product_type || 'link',
+        member_area_enabled:
+          body.member_area_enabled ?? body.product_type === 'infoproduct',
+        support_email: body.support_email || null,
+        welcome_message: body.welcome_message || null,
       },
     });
 
@@ -86,11 +101,18 @@ export async function productsRoutes(app: FastifyInstance) {
       data: {
         ...(body.name && { name: body.name }),
         ...(body.description !== undefined && { description: body.description }),
+        ...(body.subtitle !== undefined && { subtitle: body.subtitle }),
         ...(body.price && { price: body.price }),
         ...(body.image_url !== undefined && { image_url: body.image_url }),
+        ...(body.cover_url !== undefined && { cover_url: body.cover_url }),
         ...(body.stock !== undefined && { stock: body.stock }),
         ...(body.active !== undefined && { active: body.active }),
         ...(body.fee_payer && { fee_payer: body.fee_payer }),
+        ...(body.is_subscription !== undefined && { is_subscription: body.is_subscription }),
+        ...(body.product_type && { product_type: body.product_type }),
+        ...(body.member_area_enabled !== undefined && { member_area_enabled: body.member_area_enabled }),
+        ...(body.support_email !== undefined && { support_email: body.support_email || null }),
+        ...(body.welcome_message !== undefined && { welcome_message: body.welcome_message || null }),
         updated_at: new Date(),
       },
     });
