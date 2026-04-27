@@ -556,6 +556,7 @@ export async function memberAreaRoutes(app: FastifyInstance) {
         description: true,
         image_url: true,
         cover_url: true,
+        price: true,
         member_area_enabled: true,
         product_type: true,
         active: true,
@@ -564,7 +565,19 @@ export async function memberAreaRoutes(app: FastifyInstance) {
     if (!product || !product.active) {
       return reply.status(404).send({ error: 'Produto não encontrado' });
     }
-    return reply.send({ success: true, product });
+
+    // Buscar link de pagamento ativo mais recente para este produto
+    const link = await prisma.paymentLink.findFirst({
+      where: { product_id: productId, active: true },
+      orderBy: { created_at: 'desc' },
+      select: { id: true },
+    });
+
+    return reply.send({
+      success: true,
+      product,
+      checkout_link_id: link?.id ?? null,
+    });
   });
 
   // Public endpoint (no auth) — anyone with the link can subscribe
