@@ -158,9 +158,7 @@ export async function integrationsRoutes(app: FastifyInstance) {
   // ========================================
   // Criar Cobrança (para integradores)
   // ========================================
-  app.post('/charges', {
-    preHandler: [integratorRateLimit, authenticateApiKey],
-  }, async (request: FastifyRequest, reply: FastifyReply) => {
+  const createChargeHandler = async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.apiUser!;
       const body = createChargeSchema.parse(request.body);
@@ -365,14 +363,15 @@ export async function integrationsRoutes(app: FastifyInstance) {
       console.error('[API] Erro ao criar cobrança:', error);
       return reply.status(500).send({ error: 'Erro interno' });
     }
-  });
+  };
+  // POST /api/v1/charges — alias /payments para compatibilidade com integradores
+  app.post('/charges', { preHandler: [integratorRateLimit, authenticateApiKey] }, createChargeHandler);
+  app.post('/payments', { preHandler: [integratorRateLimit, authenticateApiKey] }, createChargeHandler);
 
   // ========================================
   // Consultar Cobrança (para integradores)
   // ========================================
-  app.get('/charges/:id', {
-    preHandler: [integratorRateLimit, authenticateApiKey],
-  }, async (request: FastifyRequest, reply: FastifyReply) => {
+  const getChargeHandler = async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.apiUser!;
     const { id } = request.params as { id: string };
 
@@ -401,14 +400,14 @@ export async function integrationsRoutes(app: FastifyInstance) {
       created_at: payment.created_at,
       metadata: payment.metadata,
     });
-  });
+  };
+  app.get('/charges/:id', { preHandler: [integratorRateLimit, authenticateApiKey] }, getChargeHandler);
+  app.get('/payments/:id', { preHandler: [integratorRateLimit, authenticateApiKey] }, getChargeHandler);
 
   // ========================================
   // Listar Cobranças (para integradores)
   // ========================================
-  app.get('/charges', {
-    preHandler: [integratorRateLimit, authenticateApiKey],
-  }, async (request: FastifyRequest, reply: FastifyReply) => {
+  const listChargesHandler = async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.apiUser!;
     const query = request.query as {
       status?: string;
@@ -449,7 +448,9 @@ export async function integrationsRoutes(app: FastifyInstance) {
       total,
       has_more: total > (parseInt(query.offset || '0') + payments.length),
     });
-  });
+  };
+  app.get('/charges', { preHandler: [integratorRateLimit, authenticateApiKey] }, listChargesHandler);
+  app.get('/payments', { preHandler: [integratorRateLimit, authenticateApiKey] }, listChargesHandler);
 
   // ========================================
   // Consultar Saldo (para integradores)
@@ -1043,9 +1044,7 @@ export async function integrationsRoutes(app: FastifyInstance) {
   // ========================================
   // REFUNDS - Estornar cobranças
   // ========================================
-  app.post('/charges/:id/refund', {
-    preHandler: [integratorRateLimit, authenticateApiKey],
-  }, async (request: FastifyRequest, reply: FastifyReply) => {
+  const refundChargeHandler = async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.apiUser!;
     const { id } = request.params as { id: string };
     const body = request.body as { amount?: number; reason?: string };
@@ -1104,7 +1103,9 @@ export async function integrationsRoutes(app: FastifyInstance) {
       status: 'succeeded',
       created_at: new Date().toISOString(),
     });
-  });
+  };
+  app.post('/charges/:id/refund', { preHandler: [integratorRateLimit, authenticateApiKey] }, refundChargeHandler);
+  app.post('/payments/:id/refund', { preHandler: [integratorRateLimit, authenticateApiKey] }, refundChargeHandler);
 
   // ========================================
   // WEBHOOKS - Gerenciar webhooks via API
