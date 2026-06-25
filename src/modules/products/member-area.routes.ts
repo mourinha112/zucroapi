@@ -33,6 +33,15 @@ async function ensureLessonOwner(lessonId: string, userId: string) {
   return lesson;
 }
 
+async function ensureGroupOwner(groupId: string, userId: string) {
+  const group = await prisma.productGroup.findUnique({
+    where: { id: groupId },
+    include: { product: true },
+  });
+  if (!group || group.product.user_id !== userId) return null;
+  return group;
+}
+
 // ============================================
 // Validation schemas
 // ============================================
@@ -86,6 +95,14 @@ const waitlistSchema = z.object({
   email: z.string().email().max(200),
   phone: z.string().max(40).optional().nullable(),
   metadata: z.any().optional(),
+});
+
+const groupSchema = z.object({
+  name: z.string().min(1).max(200),
+  type: z.enum(['whatsapp', 'telegram', 'discord', 'other']).optional(),
+  url: z.string().min(1),
+  position: z.number().int().optional(),
+  active: z.boolean().optional(),
 });
 
 // ============================================
@@ -219,6 +236,87 @@ export async function memberAreaRoutes(app: FastifyInstance) {
         })
       )
     );
+    return reply.send({ success: true });
+  });
+
+  // ----------------------------------------
+  // GROUPS (Grupos: WhatsApp/Telegram/Discord)
+  // ----------------------------------------
+
+  app.get('/:productId/groups', {
+    preHandler: [standardRateLimit, authenticate],
+  }, async (request, reply) => {
+    const decoded = request.user as { id: string };
+    const { productId } = request.params as { productId: string };
+    const product = await ensureProductOwner(productId, decoded.id);
+    if (!product) return reply.status(404).send({ error: 'Produto não encontrado' });
+
+    const groups = await prisma.productGroup.findMany({
+      where: { product_id: productId },
+      orderBy: { position: 'asc' },
+    });
+    return reply.send({ success: true, groups });
+  });
+
+  app.post('/:productId/groups', {
+    preHandler: [standardRateLimit, authenticate],
+  }, async (request, reply) => {
+    const decoded = request.user as { id: string };
+    const { productId } = request.params as { productId: string };
+    const product = await ensureProductOwner(productId, decoded.id);
+    if (!product) return reply.status(404).send({ error: 'Produto não encontrado' });
+
+    const parsed = groupSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.errors[0]?.message });
+    }
+
+    const last = await prisma.productGroup.findFirst({
+      where: { product_id: productId },
+      orderBy: { position: 'desc' },
+    });
+
+    const group = await prisma.productGroup.create({
+      data: {
+        product_id: productId,
+        name: parsed.data.name,
+        type: parsed.data.type ?? 'whatsapp',
+        url: parsed.data.url,
+        position: parsed.data.position ?? (last ? last.position + 1 : 0),
+        active: parsed.data.active ?? true,
+      },
+    });
+    return reply.status(201).send({ success: true, group });
+  });
+
+  app.put('/:productId/groups/:groupId', {
+    preHandler: [standardRateLimit, authenticate],
+  }, async (request, reply) => {
+    const decoded = request.user as { id: string };
+    const { groupId } = request.params as { productId: string; groupId: string };
+    const group = await ensureGroupOwner(groupId, decoded.id);
+    if (!group) return reply.status(404).send({ error: 'Grupo não encontrado' });
+
+    const parsed = groupSchema.partial().safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.errors[0]?.message });
+    }
+    const updated = await prisma.productGroup.update({
+      where: { id: groupId },
+      data: { ...parsed.data, updated_at: new Date() },
+    });
+    return reply.send({ success: true, group: updated });
+  });
+
+  app.delete('/:productId/groups/:groupId', {
+    preHandler: [standardRateLimit, authenticate],
+  }, async (request, reply) => {
+    const decoded = request.user as { id: string };
+    const { groupId } = request.params as { productId: string; groupId: string };
+    const group = await ensureGroupOwner(groupId, decoded.id);
+    if (!group) return reply.status(404).send({ error: 'Grupo não encontrado' });
+
+    await prisma.productGroup.delete({ where: { id: groupId } });
     return reply.send({ success: true });
   });
 
@@ -801,6 +899,11 @@ export async function memberAreaPublicRoutes(app: FastifyInstance) {
       },
     });
 
+    const groups = await prisma.productGroup.findMany({
+      where: { product_id: access.product_id, active: true },
+      orderBy: { position: 'asc' },
+    });
+
     // touch last_access_at
     await prisma.productMemberAccess.update({
       where: { id: access.id },
@@ -836,6 +939,7 @@ export async function memberAreaPublicRoutes(app: FastifyInstance) {
         name: access.buyer_name,
       },
       modules,
+      groups,
       progress: progressByLesson,
     });
   });
