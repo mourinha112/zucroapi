@@ -11,6 +11,7 @@ const createProductSchema = z.object({
   image_url: z.string().optional(),
   cover_url: z.string().optional(),
   cover_video_url: z.string().optional(),
+  category: z.string().max(60).optional(),
   stock: z.number().optional(),
   fee_payer: z.enum(['seller', 'buyer']).optional(),
   is_subscription: z.boolean().optional(),
@@ -18,6 +19,9 @@ const createProductSchema = z.object({
   member_area_enabled: z.boolean().optional(),
   support_email: z.string().email().optional().or(z.literal('')),
   welcome_message: z.string().optional(),
+  slug: z.string().max(120).optional(),
+  affiliates_enabled: z.boolean().optional(),
+  affiliate_commission: z.number().min(0).max(90).optional(),
 });
 
 export async function productsRoutes(app: FastifyInstance) {
@@ -58,6 +62,7 @@ export async function productsRoutes(app: FastifyInstance) {
         image_url: body.image_url,
         cover_url: body.cover_url,
         cover_video_url: body.cover_video_url,
+        category: body.category,
         stock: body.stock,
         fee_payer: body.fee_payer || 'seller',
         is_subscription: body.is_subscription || false,
@@ -108,6 +113,10 @@ export async function productsRoutes(app: FastifyInstance) {
         ...(body.image_url !== undefined && { image_url: body.image_url }),
         ...(body.cover_url !== undefined && { cover_url: body.cover_url }),
         ...(body.cover_video_url !== undefined && { cover_video_url: body.cover_video_url || null }),
+        ...(body.category !== undefined && { category: body.category || null }),
+        ...(body.slug !== undefined && { slug: body.slug || null }),
+        ...(body.affiliates_enabled !== undefined && { affiliates_enabled: body.affiliates_enabled }),
+        ...(body.affiliate_commission !== undefined && { affiliate_commission: body.affiliate_commission }),
         ...(body.stock !== undefined && { stock: body.stock }),
         ...(body.active !== undefined && { active: body.active }),
         ...(body.fee_payer && { fee_payer: body.fee_payer }),
