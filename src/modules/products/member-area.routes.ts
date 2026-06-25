@@ -823,6 +823,7 @@ export async function memberAreaPublicRoutes(app: FastifyInstance) {
         subtitle: access.product.subtitle,
         description: access.product.description,
         cover_url: access.product.cover_url,
+        cover_video_url: access.product.cover_video_url,
         image_url: access.product.image_url,
         welcome_message: access.product.welcome_message,
         support_email: access.product.support_email,
@@ -885,5 +886,143 @@ export async function memberAreaPublicRoutes(app: FastifyInstance) {
     });
 
     return reply.send({ success: true, progress: updated });
+  });
+
+  // ============================================
+  // COMENTÁRIOS E AVALIAÇÃO DAS AULAS
+  // ============================================
+
+  // Lista comentários de uma aula + avaliação do próprio membro e média
+  app.get('/comments/:accessToken/:lessonId', {
+    preHandler: [standardRateLimit],
+  }, async (request, reply) => {
+    const { accessToken, lessonId } = request.params as { accessToken: string; lessonId: string };
+    const access = await prisma.productMemberAccess.findUnique({ where: { access_token: accessToken } });
+    if (!access || !access.active) return reply.status(404).send({ error: 'Acesso inválido' });
+    const lesson = await prisma.productLesson.findUnique({ where: { id: lessonId }, include: { module: true } });
+    if (!lesson || lesson.module.product_id !== access.product_id) {
+      return reply.status(404).send({ error: 'Aula inválida' });
+    }
+
+    const comments = await prisma.lessonComment.findMany({
+      where: { lesson_id: lessonId },
+      orderBy: { created_at: 'asc' },
+    });
+    const myRating = await prisma.lessonRating.findUnique({
+      where: { lesson_id_access_id: { lesson_id: lessonId, access_id: access.id } },
+    });
+    const agg = await prisma.lessonRating.aggregate({
+      where: { lesson_id: lessonId },
+      _avg: { rating: true },
+      _count: true,
+    });
+
+    return reply.send({
+      success: true,
+      comments: comments.map((c) => ({
+        id: c.id,
+        author_name: c.author_name,
+        is_admin: c.is_admin,
+        message: c.message,
+        parent_id: c.parent_id,
+        created_at: c.created_at,
+        mine: c.access_id === access.id,
+      })),
+      rating: {
+        mine: myRating?.rating || 0,
+        average: agg._avg.rating ? Number(agg._avg.rating) : 0,
+        count: agg._count || 0,
+      },
+    });
+  });
+
+  // Cria um comentário (ou resposta, via parent_id)
+  app.post('/comments/:accessToken/:lessonId', {
+    preHandler: [standardRateLimit],
+  }, async (request, reply) => {
+    const { accessToken, lessonId } = request.params as { accessToken: string; lessonId: string };
+    const body = request.body as { message?: string; parent_id?: string };
+    if (!body.message || !body.message.trim()) return reply.status(400).send({ error: 'Mensagem vazia' });
+    if (body.message.length > 1050) return reply.status(400).send({ error: 'Mensagem muito longa (máx 1050)' });
+
+    const access = await prisma.productMemberAccess.findUnique({ where: { access_token: accessToken } });
+    if (!access || !access.active) return reply.status(404).send({ error: 'Acesso inválido' });
+    const lesson = await prisma.productLesson.findUnique({ where: { id: lessonId }, include: { module: true } });
+    if (!lesson || lesson.module.product_id !== access.product_id) {
+      return reply.status(404).send({ error: 'Aula inválida' });
+    }
+
+    const comment = await prisma.lessonComment.create({
+      data: {
+        lesson_id: lessonId,
+        product_id: access.product_id,
+        access_id: access.id,
+        author_name: access.buyer_name || access.buyer_email.split('@')[0],
+        author_email: access.buyer_email,
+        message: body.message.trim(),
+        parent_id: body.parent_id || null,
+      },
+    });
+
+    return reply.send({
+      success: true,
+      comment: {
+        id: comment.id,
+        author_name: comment.author_name,
+        is_admin: comment.is_admin,
+        message: comment.message,
+        parent_id: comment.parent_id,
+        created_at: comment.created_at,
+        mine: true,
+      },
+    });
+  });
+
+  // Remove um comentário próprio
+  app.delete('/comments/:accessToken/:commentId', {
+    preHandler: [standardRateLimit],
+  }, async (request, reply) => {
+    const { accessToken, commentId } = request.params as { accessToken: string; commentId: string };
+    const access = await prisma.productMemberAccess.findUnique({ where: { access_token: accessToken } });
+    if (!access || !access.active) return reply.status(404).send({ error: 'Acesso inválido' });
+    const comment = await prisma.lessonComment.findUnique({ where: { id: commentId } });
+    if (!comment || comment.access_id !== access.id) {
+      return reply.status(404).send({ error: 'Comentário não encontrado' });
+    }
+    await prisma.lessonComment.delete({ where: { id: commentId } });
+    return reply.send({ success: true });
+  });
+
+  // Avalia a aula (1 a 5 estrelas) — uma avaliação por membro
+  app.post('/rating/:accessToken/:lessonId', {
+    preHandler: [standardRateLimit],
+  }, async (request, reply) => {
+    const { accessToken, lessonId } = request.params as { accessToken: string; lessonId: string };
+    const body = request.body as { rating?: number };
+    const rating = Math.round(Number(body.rating));
+    if (!rating || rating < 1 || rating > 5) return reply.status(400).send({ error: 'Nota inválida' });
+
+    const access = await prisma.productMemberAccess.findUnique({ where: { access_token: accessToken } });
+    if (!access || !access.active) return reply.status(404).send({ error: 'Acesso inválido' });
+    const lesson = await prisma.productLesson.findUnique({ where: { id: lessonId }, include: { module: true } });
+    if (!lesson || lesson.module.product_id !== access.product_id) {
+      return reply.status(404).send({ error: 'Aula inválida' });
+    }
+
+    await prisma.lessonRating.upsert({
+      where: { lesson_id_access_id: { lesson_id: lessonId, access_id: access.id } },
+      create: { lesson_id: lessonId, access_id: access.id, rating },
+      update: { rating, updated_at: new Date() },
+    });
+    const agg = await prisma.lessonRating.aggregate({
+      where: { lesson_id: lessonId },
+      _avg: { rating: true },
+      _count: true,
+    });
+
+    return reply.send({
+      success: true,
+      rating: { mine: rating, average: agg._avg.rating ? Number(agg._avg.rating) : 0, count: agg._count || 0 },
+    });
   });
 }

@@ -99,6 +99,7 @@ model Product {
   price                 Decimal   @db.Decimal(10, 2)
   image_url             String?
   cover_url             String?
+  cover_video_url       String?   // Banner em vídeo da área de membros (URL YouTube/Vimeo/mp4)
   stock                 Int?
   active                Boolean   @default(true)
   marketplace_enabled   Boolean   @default(false)
@@ -166,10 +167,46 @@ model ProductLesson {
   module    ProductModule           @relation(fields: [module_id], references: [id], onDelete: Cascade)
   materials ProductLessonMaterial[]
   progress  ProductLessonProgress[]
+  comments  LessonComment[]
+  ratings   LessonRating[]
 
   @@index([module_id])
   @@index([module_id, position])
   @@map("product_lessons")
+}
+
+model LessonComment {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  lesson_id    String    @db.Uuid
+  product_id   String    @db.Uuid
+  access_id    String?   @db.Uuid // membro (comprador) que comentou
+  author_name  String    @db.VarChar(200)
+  author_email String?   @db.VarChar(200)
+  is_admin     Boolean   @default(false) // resposta do produtor
+  message      String
+  parent_id    String?   @db.Uuid // resposta a outro comentário
+  created_at   DateTime  @default(now()) @db.Timestamptz
+
+  lesson ProductLesson @relation(fields: [lesson_id], references: [id], onDelete: Cascade)
+
+  @@index([lesson_id])
+  @@index([parent_id])
+  @@map("lesson_comments")
+}
+
+model LessonRating {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  lesson_id  String   @db.Uuid
+  access_id  String   @db.Uuid
+  rating     Int // 1 a 5
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @default(now()) @db.Timestamptz
+
+  lesson ProductLesson @relation(fields: [lesson_id], references: [id], onDelete: Cascade)
+
+  @@unique([lesson_id, access_id])
+  @@index([lesson_id])
+  @@map("lesson_ratings")
 }
 
 model ProductLessonMaterial {
