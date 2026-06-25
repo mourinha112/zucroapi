@@ -928,6 +928,8 @@ export async function memberAreaPublicRoutes(app: FastifyInstance) {
         cover_url: access.product.cover_url,
         cover_video_url: access.product.cover_video_url,
         image_url: access.product.image_url,
+        category: access.product.category,
+        affiliates_enabled: access.product.affiliates_enabled,
         welcome_message: access.product.welcome_message,
         support_email: access.product.support_email,
       },
