@@ -64,7 +64,7 @@ async function bootstrap() {
   // File uploads
   await app.register(multipart, {
     limits: {
-      fileSize: 10 * 1024 * 1024, // 10MB max
+      fileSize: 1024 * 1024 * 1024, // 1GB max (suporta upload de vídeos de aula)
       files: 5, // Max 5 arquivos por vez
     },
   });
