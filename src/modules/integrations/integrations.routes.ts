@@ -202,6 +202,8 @@ export async function integrationsRoutes(app: FastifyInstance) {
           splitsToPersist = validation.normalized;
         }
 
+        const externalRef = body.external_reference || `api_${user.id}_${Date.now()}`;
+
         const chargePayload = {
           value: body.value,
           description,
@@ -209,8 +211,38 @@ export async function integrationsRoutes(app: FastifyInstance) {
           customerEmail: body.customer?.email || '',
           customerCpf: body.customer?.cpf_cnpj,
           customerPhone: body.customer?.phone,
-          externalRef: body.external_reference || `api_${user.id}_${Date.now()}`,
+          externalRef,
         };
+
+        // Aplicar taxas específicas do adquirente (só se seller não tem taxa customizada)
+        const effectiveRates = applyProviderRateOverrides(rates, sellerProvider, !!customRates?.pix_rate);
+        const feeCalc = calculatePixFeeSellerPays(body.value, effectiveRates);
+
+        // Cria o payment ANTES de chamar o gateway: se o processo reiniciar no meio,
+        // a cobrança não fica órfã — o webhook casa pelo metadata.external_reference.
+        payment = await prisma.payment.create({
+          data: {
+            user_id: user.id,
+            billing_type: 'PIX',
+            value: body.value,
+            net_value: feeCalc.netValue,
+            status: 'PENDING',
+            description,
+            due_date: body.due_date ? new Date(body.due_date) : new Date(),
+            metadata: {
+              external_reference: externalRef,
+              callback_url: body.callback_url,
+              postback_url: body.postback_url || body.callback_url,
+              platform_fee: feeCalc.platformFee,
+              payment_provider: sellerProvider,
+              customer_name: body.customer?.name,
+              customer_email: body.customer?.email,
+              customer_document: body.customer?.cpf_cnpj,
+              customer_phone: body.customer?.phone,
+              created_via: 'api',
+            },
+          },
+        });
 
         if (sellerProvider === 'xflow') {
           chargeRes = await createXflowPixCharge(chargePayload);
@@ -224,6 +256,7 @@ export async function integrationsRoutes(app: FastifyInstance) {
         }
 
         if (!chargeRes.success || !chargeRes.pixCode) {
+          await prisma.payment.delete({ where: { id: payment.id } }).catch(() => {});
           console.error(`[API] Falha ao criar cobrança PIX (provider: ${sellerProvider}):`, chargeRes.error, chargeRes.debug);
           return reply.status(400).send({
             error: chargeRes.error || 'Erro ao gerar cobrança PIX',
@@ -233,28 +266,14 @@ export async function integrationsRoutes(app: FastifyInstance) {
           });
         }
 
-        // Aplicar taxas específicas do adquirente (só se seller não tem taxa customizada)
-        const effectiveRates = applyProviderRateOverrides(rates, sellerProvider, !!customRates?.pix_rate);
-        const feeCalc = calculatePixFeeSellerPays(body.value, effectiveRates);
-
-        payment = await prisma.payment.create({
+        payment = await prisma.payment.update({
+          where: { id: payment.id },
           data: {
-            user_id: user.id,
-            billing_type: 'PIX',
-            value: body.value,
-            net_value: feeCalc.netValue,
-            status: 'PENDING',
-            description,
-            due_date: body.due_date ? new Date(body.due_date) : new Date(),
             efi_txid: chargeRes.transactionId,
             pix_qrcode: chargeRes.pixQrCode,
             pix_copy_paste: chargeRes.pixCode,
             metadata: {
-              external_reference: body.external_reference,
-              callback_url: body.callback_url,
-              postback_url: body.postback_url || body.callback_url,
-              platform_fee: feeCalc.platformFee,
-              payment_provider: sellerProvider,
+              ...(payment.metadata as any),
               ...(sellerProvider === 'xflow'
                 ? { xflow_transaction_id: chargeRes.transactionId }
                 : sellerProvider === 'enki'
@@ -262,11 +281,6 @@ export async function integrationsRoutes(app: FastifyInstance) {
                 : sellerProvider === 'eusouzucropay'
                 ? { eusouzucropay_transaction_id: chargeRes.transactionId }
                 : { shark_transaction_id: chargeRes.transactionId }),
-              customer_name: body.customer?.name,
-              customer_email: body.customer?.email,
-              customer_document: body.customer?.cpf_cnpj,
-              customer_phone: body.customer?.phone,
-              created_via: 'api',
             },
           },
         });

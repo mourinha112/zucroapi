@@ -1,13 +1,17 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../config/database';
 import { authenticateAdmin, standardRateLimit, sensitiveActionRateLimit } from '../../middlewares';
-import { notifyWithdrawalApproved, notifyWithdrawalRejected } from '../push/push.service';
+import { notifyWithdrawalApproved, notifyWithdrawalRejected, notifySale } from '../push/push.service';
 import { sendAccountApprovedEmail } from '../auth/email.service';
-import { getSharkBalance } from '../../providers/sharkbanking/shark.pix';
+import { getSharkBalance, getSharkTransaction } from '../../providers/sharkbanking/shark.pix';
 import { getEnkiBalance } from '../../providers/enki/enki.pix';
 import { getEuSouZucroPayBalance } from '../../providers/eusouzucropay/eusouzucropay.pix';
 import { getXflowBalance } from '../../providers/xflow/xflow.pix';
 import { env } from '../../config/env';
+import { getEffectiveRates, calculatePixFeeSellerPays } from '../../providers/efibank/fee.calculator';
+import { creditPaymentOnReceive } from '../payments/credit.service';
+import { sendChargePostback } from '../../utils/postback';
+import { sendUserWebhook } from '../webhooks/webhooks.routes';
 
 export async function adminRoutes(app: FastifyInstance) {
   // Dashboard stats com GMV, Lucro e dados para gráficos
@@ -336,6 +340,156 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // Listar usuários
+  // ========================================
+  // Recuperar vendas Shark órfãs (pagas na adquirente sem registro local)
+  // Cria o payment, credita o saldo e dispara os postbacks pro seller.
+  // Idempotente: pula txids que já existem no banco e cobranças não pagas.
+  // ========================================
+  app.post('/shark/recover', {
+    preHandler: [sensitiveActionRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    const currentUser = request.currentUser!;
+    const body = request.body as {
+      user_id: string;
+      transaction_ids: string[];
+      postback_url?: string;
+    };
+
+    if (!body?.user_id || !Array.isArray(body?.transaction_ids) || body.transaction_ids.length === 0) {
+      return reply.status(400).send({ error: 'user_id e transaction_ids são obrigatórios' });
+    }
+
+    const seller = await prisma.user.findUnique({ where: { id: body.user_id } });
+    if (!seller) {
+      return reply.status(404).send({ error: 'Seller não encontrado' });
+    }
+
+    const customRates = await prisma.userCustomRate.findUnique({
+      where: { user_id: seller.id },
+    });
+    const rates = await getEffectiveRates(customRates ? {
+      pix_rate: customRates.pix_rate ? Number(customRates.pix_rate) : undefined,
+    } : null);
+
+    const results: any[] = [];
+
+    for (const rawId of body.transaction_ids) {
+      const txId = String(rawId).trim();
+      if (!txId) continue;
+
+      try {
+        const existing = await prisma.payment.findFirst({ where: { efi_txid: txId } });
+        if (existing) {
+          results.push({ transaction_id: txId, result: 'ja_existe', payment_id: existing.id, status: existing.status });
+          continue;
+        }
+
+        const shark = await getSharkTransaction(txId);
+        if (!shark.success || !shark.data) {
+          results.push({ transaction_id: txId, result: 'erro_consulta', error: shark.error });
+          continue;
+        }
+
+        const tx = shark.data;
+        if (shark.status !== 'RECEIVED') {
+          results.push({ transaction_id: txId, result: 'nao_pago', shark_status: tx.status });
+          continue;
+        }
+
+        const grossValue = Number(tx.amount) / 100;
+        const feeCalc = calculatePixFeeSellerPays(grossValue, rates);
+        const paidAt = tx.paidAt ? new Date(tx.paidAt) : new Date();
+
+        const payment = await prisma.payment.create({
+          data: {
+            user_id: seller.id,
+            billing_type: 'PIX',
+            value: grossValue,
+            net_value: feeCalc.netValue,
+            status: 'RECEIVED',
+            description: tx.description || 'Venda recuperada (Shark)',
+            due_date: new Date(),
+            payment_date: isNaN(paidAt.getTime()) ? new Date() : paidAt,
+            efi_txid: txId,
+            metadata: {
+              external_reference: tx.externalRef || null,
+              ...(body.postback_url ? { postback_url: body.postback_url } : {}),
+              payment_provider: 'sharkbanking',
+              shark_transaction_id: txId,
+              customer_name: tx.payer?.name,
+              customer_email: tx.payer?.email,
+              customer_document: tx.payer?.taxId,
+              created_via: 'admin_recovery',
+              recovered_at: new Date().toISOString(),
+            },
+          },
+        });
+
+        await creditPaymentOnReceive({
+          payment,
+          providerLabel: 'sharkbanking',
+          feeCalc,
+          rates,
+          providerTransactionId: txId,
+        });
+
+        // Postbacks pro sistema do seller (é o que libera a entrega pro cliente final)
+        sendChargePostback(payment, 'charge.paid');
+        try {
+          await sendUserWebhook(seller.id, 'payment.received', {
+            payment_id: payment.id,
+            value: grossValue,
+            net_value: feeCalc.netValue,
+            status: 'RECEIVED',
+            billing_type: 'PIX',
+            provider: 'sharkbanking',
+            external_reference: tx.externalRef || null,
+          });
+        } catch (webhookError: any) {
+          console.error('[ADMIN RECOVER] Erro postback:', webhookError?.message);
+        }
+
+        try {
+          await notifySale(seller.id, grossValue, tx.payer?.name || 'Cliente', payment.id);
+        } catch {}
+
+        await prisma.adminLog.create({
+          data: {
+            admin_id: currentUser.id,
+            action: 'shark_payment_recovered',
+            target_type: 'payment',
+            target_id: payment.id,
+            details: {
+              transaction_id: txId,
+              value: grossValue,
+              external_reference: tx.externalRef || null,
+              payer: tx.payer?.name || null,
+            },
+          },
+        });
+
+        results.push({
+          transaction_id: txId,
+          result: 'recuperado',
+          payment_id: payment.id,
+          value: grossValue,
+          payer: tx.payer?.name || null,
+        });
+      } catch (error: any) {
+        console.error(`[ADMIN RECOVER] Erro em ${txId}:`, error);
+        results.push({ transaction_id: txId, result: 'erro', error: error?.message });
+      }
+    }
+
+    const recovered = results.filter((r) => r.result === 'recuperado');
+    return reply.send({
+      success: true,
+      recovered_count: recovered.length,
+      total_value: recovered.reduce((sum, r) => sum + (r.value || 0), 0),
+      results,
+    });
+  });
+
   app.get('/users', {
     preHandler: [standardRateLimit, authenticateAdmin],
   }, async (request, reply) => {

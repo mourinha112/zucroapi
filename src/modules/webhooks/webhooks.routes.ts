@@ -102,7 +102,7 @@ async function handleSharkTransferWebhook(body: any): Promise<void> {
 }
 
 // Função para enviar postback/webhook para o usuário
-async function sendUserWebhook(userId: string, event: string, data: any) {
+export async function sendUserWebhook(userId: string, event: string, data: any) {
   const webhooks = await prisma.webhook.findMany({
     where: { user_id: userId, status: 'active' },
   });
@@ -499,10 +499,30 @@ export async function webhooksRoutes(app: FastifyInstance) {
     const transactionData = body;
     const sharkTransactionId = String(transactionData.id);
 
-    const payment = await prisma.payment.findFirst({
+    let payment = await prisma.payment.findFirst({
       where: { efi_txid: sharkTransactionId },
       include: { user: true },
     });
+
+    // Fallback: casar pelo externalRef (metadata.external_reference).
+    // Cobre payment salvo antes do txid existir e webhook que chega antes do UPDATE do txid.
+    if (!payment && transactionData.externalRef) {
+      payment = await prisma.payment.findFirst({
+        where: {
+          metadata: { path: ['external_reference'], equals: String(transactionData.externalRef) },
+        },
+        orderBy: { created_at: 'desc' },
+        include: { user: true },
+      });
+      if (payment && !payment.efi_txid) {
+        await prisma.payment.update({
+          where: { id: payment.id },
+          data: { efi_txid: sharkTransactionId },
+        });
+        payment.efi_txid = sharkTransactionId;
+        console.log(`[WEBHOOK] Shark Hub ${sharkTransactionId} casado via externalRef ${transactionData.externalRef}`);
+      }
+    }
 
     if (!payment) {
       console.log(`[WEBHOOK] Pagamento Shark Hub não encontrado: ${sharkTransactionId}`);
