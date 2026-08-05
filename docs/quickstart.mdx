@@ -45,7 +45,8 @@ curl -X POST https://api.appzucropay.com/api/v1/charges \
     "customer": {
       "name": "João Silva",
       "email": "joao@email.com",
-      "cpf_cnpj": "12345678900"
+      "cpf_cnpj": "12345678900",
+      "phone": "11999999999"
     }
   }'
 ```
@@ -64,7 +65,8 @@ const response = await fetch('https://api.appzucropay.com/api/v1/charges', {
     customer: {
       name: 'João Silva',
       email: 'joao@email.com',
-      cpf_cnpj: '12345678900'
+      cpf_cnpj: '12345678900',
+      phone: '11999999999'
     }
   })
 });
@@ -89,7 +91,8 @@ response = requests.post(
         'customer': {
             'name': 'João Silva',
             'email': 'joao@email.com',
-            'cpf_cnpj': '12345678900'
+            'cpf_cnpj': '12345678900',
+            'phone': '11999999999'
         }
     }
 )
@@ -116,7 +119,8 @@ curl_setopt_array($curl, [
         'customer' => [
             'name' => 'João Silva',
             'email' => 'joao@email.com',
-            'cpf_cnpj' => '12345678900'
+            'cpf_cnpj' => '12345678900',
+            'phone' => '11999999999'
         ]
     ])
 ]);

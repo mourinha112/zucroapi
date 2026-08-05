@@ -23,9 +23,38 @@ export interface SharkPixChargeResult {
   debug?: any;
 }
 
+const normalizePayerPhone = (value?: string): string | null => {
+  const digits = (value || '').replace(/\D/g, '');
+
+  // Accepts DDD + number (10/11 digits), optionally prefixed with Brazil's DDI.
+  if (digits.length === 10 || digits.length === 11) return digits;
+  if ((digits.length === 12 || digits.length === 13) && digits.startsWith('55')) return digits;
+
+  return null;
+};
+
 export const createSharkPixCharge = async (data: SharkPixChargeData): Promise<SharkPixChargeResult> => {
   const amountInCents = Math.round(data.value * 100);
   const notificationUrl = data.postbackUrl || env.SHARK_WEBHOOK_URL || '';
+  const payerPhone = normalizePayerPhone(data.customerPhone);
+
+  if (!payerPhone) {
+    const missing = !(data.customerPhone || '').trim();
+    return {
+      success: false,
+      error: missing
+        ? 'Telefone do pagador é obrigatório para gerar o PIX.'
+        : 'Telefone do pagador inválido. Envie DDD e número, somente dígitos.',
+      debug: {
+        code: missing ? 'PAYER_PHONE_REQUIRED' : 'PAYER_PHONE_INVALID',
+        details: {
+          'payer.phone': missing
+            ? 'Payer phone is required.'
+            : 'Payer phone must contain DDD and number.',
+        },
+      },
+    };
+  }
 
   const payload: any = {
     amount: amountInCents,
@@ -38,6 +67,7 @@ export const createSharkPixCharge = async (data: SharkPixChargeData): Promise<Sh
       name: data.customerName,
       email: data.customerEmail,
       taxId: (data.customerCpf || '').replace(/\D/g, ''),
+      phone: payerPhone,
     },
     items: [
       {
@@ -48,10 +78,6 @@ export const createSharkPixCharge = async (data: SharkPixChargeData): Promise<Sh
       },
     ],
   };
-
-  if (data.customerPhone) {
-    payload.payer.phone = data.customerPhone.replace(/\D/g, '');
-  }
 
   console.log('[SHARK PIX] Criando cobrança:', JSON.stringify(payload));
 
