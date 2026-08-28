@@ -55,6 +55,7 @@ model User {
   api_keys           ApiKey[]
   webhooks           Webhook[]
   push_subscriptions PushSubscription[]
+  devices            UserDevice[]
   balance_reserves   BalanceReserve[]
   chargebacks        Chargeback[]
   risky_seller_logs  RiskySellerLog[]
@@ -596,6 +597,26 @@ model PushSubscription {
 
   @@unique([user_id, endpoint])
   @@map("push_subscriptions")
+}
+
+/// Dispositivos/sessões do usuário — alimenta a aba Dispositivos das Configurações.
+/// Uma linha por combinação de navegador+SO+IP; logins repetidos atualizam last_seen.
+model UserDevice {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id     String   @db.Uuid
+  fingerprint String   @db.VarChar(64)
+  user_agent  String?
+  ip_address  String?  @db.VarChar(64)
+  browser     String?  @db.VarChar(60)
+  os          String?  @db.VarChar(40)
+  last_seen   DateTime @default(now()) @db.Timestamptz
+  created_at  DateTime @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, fingerprint])
+  @@index([user_id, last_seen])
+  @@map("user_devices")
 }
 
 model BalanceReserve {

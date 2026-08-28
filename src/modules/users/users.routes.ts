@@ -2,8 +2,20 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../config/database';
 import { authenticate, standardRateLimit } from '../../middlewares';
 import { getEffectiveRates } from '../../providers/efibank/fee.calculator';
+import { listDevices, recordDevice } from './devices.service';
 
 export async function usersRoutes(app: FastifyInstance) {
+  // Dispositivos/sessões do usuário (aba Dispositivos das Configurações)
+  app.get('/devices', {
+    preHandler: [standardRateLimit, authenticate],
+  }, async (request, reply) => {
+    const decoded = request.user as { id: string };
+    // Mantém o dispositivo atual no topo mesmo que o login tenha sido antigo
+    await recordDevice(request, decoded.id);
+    const devices = await listDevices(decoded.id);
+    return reply.send({ success: true, devices });
+  });
+
   // Obter perfil do usuário
   app.get('/profile', {
     preHandler: [standardRateLimit, authenticate],

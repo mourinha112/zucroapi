@@ -5,6 +5,7 @@ import { authService } from './auth.service';
 import { authenticate, authRateLimit } from '../../middlewares';
 import { prisma } from '../../config/database';
 import { sendLoginCode } from './email.service';
+import { recordDevice } from '../users/devices.service';
 
 // Schemas de validação
 const loginSchema = z.object({
@@ -118,6 +119,9 @@ export async function authRoutes(app: FastifyInstance) {
         email: user.email,
         type: 'user',
       });
+
+      // Registra o dispositivo desta sessão (aba Dispositivos das Configurações)
+      await recordDevice(request, user.id);
 
       return reply.send({
         success: true,
