@@ -5,6 +5,7 @@ import { createSharkPixCharge } from '../../providers/sharkbanking/shark.pix';
 import { createEnkiPixCharge } from '../../providers/enki/enki.pix';
 import { createEuSouZucroPayPixCharge } from '../../providers/eusouzucropay/eusouzucropay.pix';
 import { createXflowPixCharge } from '../../providers/xflow/xflow.pix';
+import { createUvviPayPixCharge } from '../../providers/uvvipay/uvvipay.pix';
 import {
   getEffectiveRates,
   calculatePixFeeSellerPays,
@@ -250,6 +251,8 @@ export async function integrationsRoutes(app: FastifyInstance) {
           chargeRes = await createEnkiPixCharge(chargePayload);
         } else if (sellerProvider === 'eusouzucropay') {
           chargeRes = await createEuSouZucroPayPixCharge(chargePayload);
+        } else if (sellerProvider === 'uvvipay') {
+          chargeRes = await createUvviPayPixCharge(chargePayload);
         } else {
           // efibank/shark/fallback → SharkBanking
           chargeRes = await createSharkPixCharge(chargePayload);

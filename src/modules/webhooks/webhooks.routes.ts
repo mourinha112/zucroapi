@@ -14,6 +14,8 @@ import {
 } from '../../providers/efibank/fee.calculator';
 import { creditPaymentOnReceive } from '../payments/credit.service';
 import { mapXflowStatus } from '../../providers/xflow/xflow.pix';
+import { mapUvviPayStatus } from '../../providers/uvvipay/uvvipay.pix';
+import { verifyUvviPaySignature } from '../../providers/uvvipay/uvvipay.client';
 import { env } from '../../config/env';
 
 function verifySharkSignature(rawBody: string | undefined, headerSignature: string | undefined, secret: string): 'ok' | 'skip' | 'invalid' {
@@ -1218,6 +1220,216 @@ export async function webhooksRoutes(app: FastifyInstance) {
 
     console.log('[WEBHOOK] ========================================');
     return reply.send({ received: true });
+  });
+
+  // ============================================================
+  // UvviPay
+  // ============================================================
+  // Registrado num escopo ENCAPSULADO só para esta rota: o parser de JSON
+  // abaixo guarda o corpo cru (necessário para conferir o HMAC) sem alterar
+  // como as outras rotas de webhook leem o corpo. Fazer isso globalmente
+  // reativaria a validação HMAC da Shark — hoje inativa por falta de rawBody —
+  // e um segredo divergente passaria a rejeitar webhooks de venda.
+  app.register(async (uvvi) => {
+    uvvi.addContentTypeParser(
+      'application/json',
+      { parseAs: 'string' },
+      (_req, body, done) => {
+        (_req as any).rawBody = body;
+        try {
+          done(null, body ? JSON.parse(body as string) : {});
+        } catch (err: any) {
+          err.statusCode = 400;
+          done(err, undefined);
+        }
+      },
+    );
+
+    uvvi.get('/uvvipay', async (_request, reply) => {
+      console.log('[WEBHOOK] GET /uvvipay - validação');
+      return reply.send({ success: true, message: 'Webhook UvviPay ativo' });
+    });
+
+    uvvi.post('/uvvipay', {
+      preHandler: [webhookRateLimit],
+    }, async (request, reply) => {
+      const body = request.body as any;
+      const rawBody = (request as any).rawBody as string | undefined;
+      const signature = request.headers['x-uvvipay-signature'] as string | undefined;
+      const timestamp = request.headers['x-uvvipay-timestamp'] as string | undefined;
+
+      console.log('[WEBHOOK] ========== UvviPay Webhook ==========');
+      console.log('[WEBHOOK] Event:', body?.event);
+      console.log('[WEBHOOK] Body:', JSON.stringify(body, null, 2));
+
+      // HMAC-SHA256 de "{timestamp}.{corpo cru}", janela de 5 min
+      const sigResult = verifyUvviPaySignature(
+        rawBody,
+        signature,
+        timestamp,
+        env.UVVIPAY_WEBHOOK_SECRET,
+      );
+      if (sigResult === 'invalid') {
+        console.log('[WEBHOOK] ⚠️ UvviPay: assinatura HMAC inválida');
+        return reply.status(401).send({ error: 'invalid signature' });
+      }
+      if (sigResult === 'skip' && env.UVVIPAY_WEBHOOK_SECRET) {
+        console.log('[WEBHOOK] ℹ️ UvviPay: pulando validação HMAC (rawBody indisponível)');
+      }
+
+      const event: string | undefined = body?.event;
+      // A UvviPay manda os dados da transação junto do evento; o envelope varia
+      // conforme o recurso, então aceitamos as formas conhecidas.
+      const tx = body?.transaction || body?.data || body?.payment || body;
+
+      if (!event?.startsWith('transaction.') || !tx?.id) {
+        console.log('[WEBHOOK] ⚠️ UvviPay: evento não suportado ou sem id');
+        return reply.send({ received: true });
+      }
+
+      const uvvipayTransactionId = String(tx.id);
+
+      const payment = await prisma.payment.findFirst({
+        where: { efi_txid: uvvipayTransactionId },
+        include: { user: true },
+      });
+
+      if (!payment) {
+        console.log(`[WEBHOOK] UvviPay: payment não encontrado (txid=${uvvipayTransactionId})`);
+        return reply.send({ received: true });
+      }
+
+      // Idempotência: reentregas de uma venda já creditada não fazem nada
+      if (payment.status === 'RECEIVED') {
+        console.log(`[WEBHOOK] UvviPay ${uvvipayTransactionId} já está RECEIVED, ignorando`);
+        return reply.send({ received: true });
+      }
+
+      const newStatus = mapUvviPayStatus(tx.status);
+      if (newStatus === payment.status) {
+        return reply.send({ received: true });
+      }
+
+      // Atualização atômica quando vira RECEIVED (evita race com reentregas)
+      if (newStatus === 'RECEIVED') {
+        const updated = await prisma.$executeRaw`
+          UPDATE payments SET status = 'RECEIVED', payment_date = NOW(), updated_at = NOW()
+          WHERE id = ${payment.id}::uuid AND status != 'RECEIVED'
+        `;
+        if (updated === 0) {
+          console.log(`[WEBHOOK] UvviPay ${payment.id} já foi processado, ignorando`);
+          return reply.send({ received: true });
+        }
+      } else {
+        await prisma.payment.update({
+          where: { id: payment.id },
+          data: {
+            status: newStatus,
+            payment_date: payment.payment_date,
+          },
+        });
+      }
+
+      console.log(`[WEBHOOK] UvviPay ${uvvipayTransactionId} atualizado: ${newStatus}`);
+
+      const eventMap: Record<string, string> = {
+        RECEIVED: 'charge.paid',
+        REFUNDED: 'charge.refunded',
+        CANCELLED: 'charge.cancelled',
+        REFUSED: 'charge.refused',
+        OVERDUE: 'charge.expired',
+        PENDING: 'charge.pending',
+      };
+      const updatedPaymentForPostback = await prisma.payment.findUnique({
+        where: { id: payment.id },
+      });
+      if (updatedPaymentForPostback) {
+        sendChargePostback(
+          updatedPaymentForPostback,
+          eventMap[newStatus] || `charge.${newStatus.toLowerCase()}`,
+        );
+      }
+
+      if (newStatus === 'RECEIVED') {
+        const grossValue = Number(payment.value);
+        const billingType = payment.billing_type || 'PIX';
+
+        const customRates = await prisma.userCustomRate.findUnique({
+          where: { user_id: payment.user_id },
+        });
+        const baseRates = await getEffectiveRates(
+          customRates
+            ? {
+                pix_rate: customRates.pix_rate ? Number(customRates.pix_rate) : undefined,
+                card_rate: customRates.card_rate ? Number(customRates.card_rate) : undefined,
+              }
+            : null,
+        );
+        const rates = applyProviderRateOverrides(baseRates, 'uvvipay', !!customRates?.pix_rate);
+        const feeCalc = calculatePixFeeSellerPays(grossValue, rates);
+
+        await creditPaymentOnReceive({
+          payment,
+          providerLabel: 'uvvipay',
+          feeCalc,
+          rates,
+          providerTransactionId: uvvipayTransactionId,
+        });
+
+        try {
+          const customerName = tx?.customer?.name || 'Cliente';
+          await notifySale(payment.user_id, grossValue, customerName, payment.id);
+        } catch (pushError) {
+          console.error('[WEBHOOK] UvviPay erro push:', pushError);
+        }
+
+        try {
+          await sendUserWebhook(payment.user_id, 'payment.received', {
+            payment_id: payment.id,
+            value: grossValue,
+            net_value: feeCalc.netValue,
+            status: 'RECEIVED',
+            billing_type: billingType,
+            provider: 'uvvipay',
+          });
+        } catch (webhookError) {
+          console.error('[WEBHOOK] UvviPay erro postback:', webhookError);
+        }
+
+        try {
+          const metadata = payment.metadata as any;
+          await sendUtmifyPostback({
+            paymentId: payment.id,
+            sellerId: payment.user_id,
+            value: grossValue,
+            netValue: feeCalc.netValue,
+            platformFee: feeCalc.platformFee,
+            status: 'paid',
+            customerName: metadata?.customer_name || tx?.customer?.name || 'Cliente',
+            customerEmail: metadata?.customer_email || tx?.customer?.email || '',
+            customerPhone: metadata?.customer_phone || undefined,
+            customerDocument: metadata?.customer_document || undefined,
+            productName: payment.description || 'Produto ZucroPay',
+            productId: payment.payment_link_id || undefined,
+            createdAt: payment.created_at.toISOString().replace('T', ' ').substring(0, 19),
+            approvedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+          });
+        } catch (utmifyError) {
+          console.error('[WEBHOOK] UvviPay UTMify erro:', utmifyError);
+        }
+      }
+
+      if (newStatus === 'PENDING') {
+        try {
+          await notifySalePending(payment.user_id, Number(payment.value), payment.id);
+        } catch (pushError) {
+          console.error('[WEBHOOK] UvviPay erro push pendente:', pushError);
+        }
+      }
+
+      console.log('[WEBHOOK] ========================================');
+      return reply.send({ received: true });
+    });
   });
 
   // Listar webhooks do usuário (autenticado)

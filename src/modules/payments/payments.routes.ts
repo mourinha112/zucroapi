@@ -5,6 +5,9 @@ import { createSharkPixCharge } from '../../providers/sharkbanking/shark.pix';
 import { createEnkiPixCharge } from '../../providers/enki/enki.pix';
 import { createEuSouZucroPayPixCharge } from '../../providers/eusouzucropay/eusouzucropay.pix';
 import { createXflowPixCharge } from '../../providers/xflow/xflow.pix';
+import { createUvviPayPixCharge } from '../../providers/uvvipay/uvvipay.pix';
+import { createUvviPayCardCharge } from '../../providers/uvvipay/uvvipay.card';
+import { env } from '../../config/env';
 import {
   getEffectiveRates,
   calculatePixFeeSellerPays,
@@ -198,12 +201,21 @@ export async function paymentsRoutes(app: FastifyInstance) {
     try {
       const body = request.body as {
         linkId: string;
-        billingType: 'PIX';
+        billingType: 'PIX' | 'CREDIT_CARD';
         customerName: string;
         customerEmail: string;
         customerCpfCnpj?: string;
         customerPhone?: string;
         couponCode?: string;
+        /** Só usado quando billingType = CREDIT_CARD (hoje: apenas UvviPay). */
+        card?: {
+          number: string;
+          holderName: string;
+          cvv: string;
+          expirationMonth: number;
+          expirationYear: number;
+          installments?: number;
+        };
         split?: Array<{
           recipient_id: string;
           type?: 'amount' | 'percent';
@@ -297,8 +309,27 @@ export async function paymentsRoutes(app: FastifyInstance) {
         }
       }
 
-      // Somente PIX
-      if (body.billingType !== 'PIX') {
+      // PIX para todos; cartão só para vendedores na UvviPay com a flag ligada.
+      // Com UVVIPAY_CARD_ENABLED=false o comportamento é o de antes: só PIX.
+      const providerForMethod = (link.user as any)?.payment_provider || 'eusouzucropay';
+      const isCardCheckout = body.billingType === 'CREDIT_CARD';
+
+      if (isCardCheckout) {
+        if (providerForMethod !== 'uvvipay' || !env.UVVIPAY_CARD_ENABLED) {
+          return reply.status(400).send({
+            success: false,
+            message: 'Apenas pagamento via PIX está disponível.',
+            error: 'Somente PIX disponível',
+          });
+        }
+        if (!body.card?.number || !body.card?.cvv || !body.card?.holderName) {
+          return reply.status(400).send({
+            success: false,
+            message: 'Dados do cartão incompletos.',
+            error: 'Cartão inválido',
+          });
+        }
+      } else if (body.billingType !== 'PIX') {
         return reply.status(400).send({
           success: false,
           message: 'Apenas pagamento via PIX está disponível.',
@@ -340,9 +371,48 @@ export async function paymentsRoutes(app: FastifyInstance) {
       const sellerProvider = (link.user as any)?.payment_provider || 'eusouzucropay';
       console.log(`[CHECKOUT PIX] ${sellerProvider} - vendedor: ${link.user.name} (${link.user_id})`);
 
-      let chargeResult: { success: boolean; transactionId?: string; pixCode?: string; pixQrCode?: string; error?: string; debug?: any };
+      let chargeResult: {
+        success: boolean;
+        transactionId?: string;
+        pixCode?: string;
+        pixQrCode?: string;
+        error?: string;
+        debug?: any;
+        /** Só no fluxo de cartão: status já autorizado/recusado pelo emissor. */
+        status?: string;
+        cardRefused?: boolean;
+      };
 
-      if (sellerProvider === 'xflow') {
+      if (isCardCheckout) {
+        // Cartão de crédito (UvviPay). A autorização é síncrona, mas quem
+        // libera o saldo continua sendo o webhook — igual ao PIX.
+        const cardCharge = await createUvviPayCardCharge({
+          value: baseValue,
+          description,
+          installments: body.card?.installments || 1,
+          customerName: body.customerName,
+          customerEmail: body.customerEmail,
+          customerCpf: body.customerCpfCnpj,
+          customerPhone: body.customerPhone,
+          externalRef: `zp_${link.id}_${Date.now()}`,
+          ip: clientIp,
+          card: {
+            number: body.card!.number,
+            holderName: body.card!.holderName,
+            cvv: body.card!.cvv,
+            expirationMonth: body.card!.expirationMonth,
+            expirationYear: body.card!.expirationYear,
+          },
+        });
+        chargeResult = {
+          success: cardCharge.success,
+          transactionId: cardCharge.transactionId,
+          status: cardCharge.status,
+          cardRefused: cardCharge.cardRefused,
+          error: cardCharge.error,
+          debug: cardCharge.debug,
+        };
+      } else if (sellerProvider === 'xflow') {
         chargeResult = await createXflowPixCharge({
           value: baseValue,
           description,
@@ -372,6 +442,16 @@ export async function paymentsRoutes(app: FastifyInstance) {
           customerPhone: body.customerPhone,
           externalRef: `zp_${link.id}_${Date.now()}`,
         });
+      } else if (sellerProvider === 'uvvipay') {
+        chargeResult = await createUvviPayPixCharge({
+          value: baseValue,
+          description,
+          customerName: body.customerName,
+          customerEmail: body.customerEmail,
+          customerCpf: body.customerCpfCnpj,
+          customerPhone: body.customerPhone,
+          externalRef: `zp_${link.id}_${Date.now()}`,
+        });
       } else {
         chargeResult = await createSharkPixCharge({
           value: baseValue,
@@ -390,7 +470,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
         return reply.send({ success: false, message: errorMsg, error: errorMsg });
       }
 
-      if (!chargeResult.pixCode) {
+      if (!isCardCheckout && !chargeResult.pixCode) {
         return reply.send({
           success: false,
           message: 'Não foi possível gerar o código PIX. Tente novamente.',
@@ -405,15 +485,17 @@ export async function paymentsRoutes(app: FastifyInstance) {
       const savedPayment = await prisma.payment.create({
         data: {
           user_id: link.user_id,
-          billing_type: 'PIX',
+          billing_type: isCardCheckout ? 'CREDIT_CARD' : 'PIX',
           value: baseValue,
           net_value: feeCalc.netValue,
-          status: 'PENDING',
+          // Cartão nasce com o status devolvido pela autorização; PIX nasce PENDING.
+          // Em ambos, o crédito no saldo só acontece pelo webhook.
+          status: isCardCheckout ? (chargeResult.status || 'PENDING') : 'PENDING',
           description,
           due_date: new Date(),
           efi_txid: chargeResult.transactionId,
-          pix_qrcode: chargeResult.pixQrCode,
-          pix_copy_paste: chargeResult.pixCode,
+          pix_qrcode: isCardCheckout ? null : chargeResult.pixQrCode,
+          pix_copy_paste: isCardCheckout ? null : chargeResult.pixCode,
           payment_link_id: link.id,
           metadata: JSON.parse(JSON.stringify({
             base_value: baseValue,
@@ -428,6 +510,8 @@ export async function paymentsRoutes(app: FastifyInstance) {
               ? { enki_transaction_id: chargeResult.transactionId }
               : sellerProvider === 'eusouzucropay'
               ? { eusouzucropay_transaction_id: chargeResult.transactionId }
+              : sellerProvider === 'uvvipay'
+              ? { uvvipay_transaction_id: chargeResult.transactionId }
               : { shark_transaction_id: chargeResult.transactionId }),
             customer_ip: clientIp,
             customer_name: body.customerName,

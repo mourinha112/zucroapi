@@ -34,3 +34,15 @@ VAPID_EMAIL=mailto:seu@email.com
 
 # Frontend URL (para CORS - use o domínio da Vercel)
 FRONTEND_URL=https://seu-projeto.vercel.app
+
+# UvviPay (PIX + cartao de credito) — https://developers.uvvipay.com.br
+# Credenciais em Configuracoes > API Clients no painel da UvviPay.
+UVVIPAY_CLIENT_ID=seu_client_id
+UVVIPAY_CLIENT_SECRET=seu_client_secret
+# URL que a UvviPay chama nas mudancas de status
+UVVIPAY_WEBHOOK_URL=https://api.appzucropay.com/api/webhooks/uvvipay
+# hmac_secret informado ao criar o webhook (POST /v1/webhooks). Sem ele a
+# assinatura nao e conferida; com ele, webhook sem assinatura valida e recusado.
+UVVIPAY_WEBHOOK_SECRET=
+# Cartao desligado por padrao. So ligue apos homologar o fluxo.
+UVVIPAY_CARD_ENABLED=false

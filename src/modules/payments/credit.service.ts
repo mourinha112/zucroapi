@@ -12,7 +12,7 @@ type CreditParams = {
     has_split: boolean;
     metadata: any;
   };
-  providerLabel: 'asaas' | 'sharkbanking' | 'enki' | 'eusouzucropay' | 'efibank' | 'xflow';
+  providerLabel: 'asaas' | 'sharkbanking' | 'enki' | 'eusouzucropay' | 'efibank' | 'xflow' | 'uvvipay';
   feeCalc: { netValue: number; platformFee: number; reserveAmount: number };
   rates: { reserve_days: number };
   providerTransactionId?: string;

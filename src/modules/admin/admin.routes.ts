@@ -7,6 +7,7 @@ import { getSharkBalance, getSharkTransaction } from '../../providers/sharkbanki
 import { getEnkiBalance } from '../../providers/enki/enki.pix';
 import { getEuSouZucroPayBalance } from '../../providers/eusouzucropay/eusouzucropay.pix';
 import { getXflowBalance } from '../../providers/xflow/xflow.pix';
+import { getUvviPayBalance } from '../../providers/uvvipay/uvvipay.pix';
 import { env } from '../../config/env';
 import { getEffectiveRates, calculatePixFeeSellerPays } from '../../providers/efibank/fee.calculator';
 import { creditPaymentOnReceive } from '../payments/credit.service';
@@ -278,11 +279,12 @@ export async function adminRoutes(app: FastifyInstance) {
     preHandler: [standardRateLimit, authenticateAdmin],
   }, async (_request, reply) => {
     try {
-      const [shark, enki, eusouzucropay, xflow] = await Promise.all([
+      const [shark, enki, eusouzucropay, xflow, uvvipay] = await Promise.all([
         getSharkBalance(),
         getEnkiBalance(),
         getEuSouZucroPayBalance(),
         getXflowBalance(),
+        getUvviPayBalance(),
       ]);
 
       const providers = [
@@ -309,6 +311,14 @@ export async function adminRoutes(app: FastifyInstance) {
           name: 'XFlow Hub',
           configured: !!(env.XFLOW_PUBLIC_KEY && env.XFLOW_SECRET_KEY),
           balance: xflow,
+        },
+        {
+          // A UvviPay não expõe saldo da conta principal na API (só por
+          // subconta), então `balance` fica null e o painel não mostra card.
+          id: 'uvvipay',
+          name: 'UvviPay',
+          configured: !!(env.UVVIPAY_CLIENT_ID && env.UVVIPAY_CLIENT_SECRET),
+          balance: uvvipay,
         },
       ];
 
@@ -736,6 +746,20 @@ export async function adminRoutes(app: FastifyInstance) {
             pixKey: withdrawal.pix_key!,
             pixKeyType: withdrawal.pix_key_type || 'cpf',
           });
+        } else if (providerName === 'uvvipay') {
+          // A UvviPay não expõe saque para a conta principal (só por subconta).
+          // Falha explícita de propósito: sem este branch o saque cairia no
+          // `else` e sairia do saldo da SharkBanking — dinheiro recebido numa
+          // adquirente sendo pago por outra. O saque fica pendente e o admin
+          // paga pelo painel da UvviPay, depois marca como concluído.
+          const { createUvviPayPixTransfer } = await import('../../providers/uvvipay/uvvipay.pix');
+          pixResult = await createUvviPayPixTransfer({
+            value: Number(withdrawal.amount),
+            pixKey: withdrawal.pix_key!,
+            pixKeyType: withdrawal.pix_key_type || 'cpf',
+            description: `Saque ZucroPay - ${seller?.name || 'Usuario'}`,
+            externalRef: id,
+          });
         } else {
           const { createSharkPixTransfer } = await import('../../providers/sharkbanking/shark.pix');
           pixResult = await createSharkPixTransfer({
@@ -936,13 +960,14 @@ export async function adminRoutes(app: FastifyInstance) {
     const currentUser = request.currentUser!;
     const { id } = request.params as { id: string };
     const body = request.body as {
-      provider: 'efibank' | 'asaas' | 'enki' | 'eusouzucropay' | 'xflow';
+      provider: 'efibank' | 'asaas' | 'enki' | 'eusouzucropay' | 'xflow' | 'uvvipay';
     };
 
-    if (!['efibank', 'asaas', 'enki', 'eusouzucropay', 'xflow'].includes(body.provider)) {
+    if (!['efibank', 'asaas', 'enki', 'eusouzucropay', 'xflow', 'uvvipay'].includes(body.provider)) {
       return reply.status(400).send({
         success: false,
-        error: 'Provedor inválido. Use "efibank", "asaas", "enki", "eusouzucropay" ou "xflow".',
+        error:
+          'Provedor inválido. Use "efibank", "asaas", "enki", "eusouzucropay", "xflow" ou "uvvipay".',
       });
     }
 

@@ -53,7 +53,17 @@ export const env = {
   XFLOW_WITHDRAW_KEY: process.env.XFLOW_WITHDRAW_KEY || '',
   XFLOW_WEBHOOK_URL: process.env.XFLOW_WEBHOOK_URL || '',
   XFLOW_CARD_ENABLED: process.env.XFLOW_CARD_ENABLED === 'true',
-  
+
+  // UvviPay — PIX + cartão de crédito. Autentica por headers client-id/client-secret.
+  // Docs: https://developers.uvvipay.com.br
+  UVVIPAY_CLIENT_ID: process.env.UVVIPAY_CLIENT_ID || '',
+  UVVIPAY_CLIENT_SECRET: process.env.UVVIPAY_CLIENT_SECRET || '',
+  UVVIPAY_WEBHOOK_URL: process.env.UVVIPAY_WEBHOOK_URL || '',
+  // Segredo HMAC cadastrado ao criar o webhook na UvviPay (valida X-UvviPay-Signature)
+  UVVIPAY_WEBHOOK_SECRET: process.env.UVVIPAY_WEBHOOK_SECRET || '',
+  // Cartão desligado por padrão: só liga quando o fluxo estiver homologado
+  UVVIPAY_CARD_ENABLED: process.env.UVVIPAY_CARD_ENABLED === 'true',
+
   // Resend (Email)
   RESEND_API_KEY: process.env.RESEND_API_KEY || '',
 

@@ -26,7 +26,7 @@ model User {
   account_reviewed_at       DateTime? @db.Timestamptz
   identity_verified         Boolean   @default(false)
   efi_customer_id           String?   @db.VarChar(100)
-  payment_provider          String    @default("eusouzucropay") @db.VarChar(20) // eusouzucropay (default), efibank, asaas, enki
+  payment_provider          String    @default("eusouzucropay") @db.VarChar(20) // eusouzucropay (default), xflow, enki, uvvipay, efibank, asaas
   verification_status       String    @default("pending") @db.VarChar(20)
   verification_submitted_at DateTime? @db.Timestamptz
   verification_reviewed_at  DateTime? @db.Timestamptz
