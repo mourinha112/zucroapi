@@ -6,6 +6,7 @@ import { createEnkiPixCharge } from '../../providers/enki/enki.pix';
 import { createEuSouZucroPayPixCharge } from '../../providers/eusouzucropay/eusouzucropay.pix';
 import { createXflowPixCharge } from '../../providers/xflow/xflow.pix';
 import { createUvviPayPixCharge } from '../../providers/uvvipay/uvvipay.pix';
+import { createPaySharkPixCharge } from '../../providers/payshark/payshark.pix';
 import {
   getEffectiveRates,
   calculatePixFeeSellerPays,
@@ -180,7 +181,7 @@ export async function integrationsRoutes(app: FastifyInstance) {
 
       // ========== PIX ==========
       if (body.billing_type === 'PIX') {
-        const sellerProvider = (user as any).payment_provider || 'eusouzucropay';
+        const sellerProvider = (user as any).payment_provider || 'payshark';
         let chargeRes: { success: boolean; transactionId?: string; pixCode?: string; pixQrCode?: string; error?: string; debug?: any };
 
         // Validar splits antes de chamar o provider (evita cobrança órfã no gateway)
@@ -245,7 +246,9 @@ export async function integrationsRoutes(app: FastifyInstance) {
           },
         });
 
-        if (sellerProvider === 'xflow') {
+        if (sellerProvider === 'payshark') {
+          chargeRes = await createPaySharkPixCharge(chargePayload);
+        } else if (sellerProvider === 'xflow') {
           chargeRes = await createXflowPixCharge(chargePayload);
         } else if (sellerProvider === 'enki') {
           chargeRes = await createEnkiPixCharge(chargePayload);
@@ -277,12 +280,16 @@ export async function integrationsRoutes(app: FastifyInstance) {
             pix_copy_paste: chargeRes.pixCode,
             metadata: {
               ...(payment.metadata as any),
-              ...(sellerProvider === 'xflow'
+              ...(sellerProvider === 'payshark'
+                ? { payshark_transaction_id: chargeRes.transactionId }
+                : sellerProvider === 'xflow'
                 ? { xflow_transaction_id: chargeRes.transactionId }
                 : sellerProvider === 'enki'
                 ? { enki_transaction_id: chargeRes.transactionId }
                 : sellerProvider === 'eusouzucropay'
                 ? { eusouzucropay_transaction_id: chargeRes.transactionId }
+                : sellerProvider === 'uvvipay'
+                ? { uvvipay_transaction_id: chargeRes.transactionId }
                 : { shark_transaction_id: chargeRes.transactionId }),
             },
           },

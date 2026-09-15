@@ -16,6 +16,8 @@ import { creditPaymentOnReceive } from '../payments/credit.service';
 import { mapXflowStatus } from '../../providers/xflow/xflow.pix';
 import { mapUvviPayStatus } from '../../providers/uvvipay/uvvipay.pix';
 import { verifyUvviPaySignature } from '../../providers/uvvipay/uvvipay.client';
+import { mapPaySharkPaymentStatus } from '../../providers/payshark/payshark.pix';
+import { verifyPaySharkSignature } from '../../providers/payshark/payshark.client';
 import { env } from '../../config/env';
 
 function verifySharkSignature(rawBody: string | undefined, headerSignature: string | undefined, secret: string): 'ok' | 'skip' | 'invalid' {
@@ -43,9 +45,15 @@ function isSharkTransferPayload(body: any): boolean {
   return false;
 }
 
-async function handleSharkTransferWebhook(body: any): Promise<void> {
+// Payload de transferência é o mesmo no Shark Hub e na Pay Shark (mesma
+// plataforma white-label); `label`/`provider` só mudam logs e metadados.
+async function handleSharkTransferWebhook(
+  body: any,
+  opts: { label: string; provider: string } = { label: 'Shark Hub', provider: 'sharkbanking' },
+): Promise<void> {
+  const { label, provider } = opts;
   if (!body?.id || !body?.status) {
-    console.log('[WEBHOOK] ⚠️ Shark Hub Transfer: payload sem id/status');
+    console.log(`[WEBHOOK] ⚠️ ${label} Transfer: payload sem id/status`);
     return;
   }
 
@@ -53,7 +61,7 @@ async function handleSharkTransferWebhook(body: any): Promise<void> {
   const withdrawalId = body.externalRef ? String(body.externalRef) : null;
 
   if (!withdrawalId) {
-    console.log('[WEBHOOK] Shark Hub Transfer sem externalRef, apenas loggando');
+    console.log(`[WEBHOOK] ${label} Transfer sem externalRef, apenas loggando`);
     return;
   }
 
@@ -72,8 +80,8 @@ async function handleSharkTransferWebhook(body: any): Promise<void> {
         where: { id: withdrawal.id },
         data: {
           status: 'rejected',
-          rejection_reason: `Shark Hub: ${status}${body.message ? ` - ${body.message}` : ''}`,
-          admin_notes: `${withdrawal.admin_notes || ''}\n[Shark Hub webhook] transfer ${body.id} → ${status}`.trim(),
+          rejection_reason: `${label}: ${status}${body.message ? ` - ${body.message}` : ''}`,
+          admin_notes: `${withdrawal.admin_notes || ''}\n[${label} webhook] transfer ${body.id} → ${status}`.trim(),
         },
       }),
       prisma.user.update({
@@ -86,20 +94,20 @@ async function handleSharkTransferWebhook(body: any): Promise<void> {
           action: 'withdrawal_transfer_failed',
           target_type: 'withdrawal',
           target_id: withdrawal.id,
-          details: { transferId: body.id, status, message: body.message || null, provider: 'sharkbanking' },
+          details: { transferId: body.id, status, message: body.message || null, provider },
         },
       }),
     ]);
-    console.log(`[WEBHOOK] Shark Hub transfer ${body.id} falhou (${status}) → withdrawal ${withdrawal.id} revertido`);
+    console.log(`[WEBHOOK] ${label} transfer ${body.id} falhou (${status}) → withdrawal ${withdrawal.id} revertido`);
   } else if (isSuccess) {
     await prisma.withdrawal.update({
       where: { id: withdrawal.id },
       data: {
         completed_at: withdrawal.completed_at || new Date(),
-        admin_notes: `${withdrawal.admin_notes || ''}\n[Shark Hub webhook] transfer ${body.id} → COMPLETED (E2E: ${body?.data?.e2e || '-'})`.trim(),
+        admin_notes: `${withdrawal.admin_notes || ''}\n[${label} webhook] transfer ${body.id} → COMPLETED (E2E: ${body?.data?.e2e || '-'})`.trim(),
       },
     });
-    console.log(`[WEBHOOK] Shark Hub transfer ${body.id} COMPLETED → withdrawal ${withdrawal.id} confirmado`);
+    console.log(`[WEBHOOK] ${label} transfer ${body.id} COMPLETED → withdrawal ${withdrawal.id} confirmado`);
   }
 }
 
@@ -1424,6 +1432,256 @@ export async function webhooksRoutes(app: FastifyInstance) {
           await notifySalePending(payment.user_id, Number(payment.value), payment.id);
         } catch (pushError) {
           console.error('[WEBHOOK] UvviPay erro push pendente:', pushError);
+        }
+      }
+
+      console.log('[WEBHOOK] ========================================');
+      return reply.send({ received: true });
+    });
+  });
+
+  // ============================================================
+  // Pay Shark (adquirente padrão)
+  // ============================================================
+  // Mesmo formato de payload do Shark Hub. Escopo encapsulado com parser que
+  // guarda o corpo cru para conferir o `X-Signature` (HMAC-SHA256 base64) sem
+  // mexer no parser global — ver comentário do bloco da UvviPay acima.
+  //
+  //   POST /payshark          → status de pagamento (também aceita payload de saque)
+  //   POST /payshark/transfer → status de saque
+  app.register(async (ps) => {
+    ps.addContentTypeParser(
+      'application/json',
+      { parseAs: 'string' },
+      (_req, body, done) => {
+        (_req as any).rawBody = body;
+        try {
+          done(null, body ? JSON.parse(body as string) : {});
+        } catch (err: any) {
+          err.statusCode = 400;
+          done(err, undefined);
+        }
+      },
+    );
+
+    const transferOpts = { label: 'Pay Shark', provider: 'payshark' };
+
+    ps.get('/payshark', async (_request, reply) => {
+      console.log('[WEBHOOK] GET /payshark - validação');
+      return reply.send({ success: true, message: 'Webhook Pay Shark ativo' });
+    });
+
+    ps.post('/payshark/transfer', {
+      preHandler: [webhookRateLimit],
+    }, async (request, reply) => {
+      const body = request.body as any;
+      const rawBody = (request as any).rawBody as string | undefined;
+      const signature = request.headers['x-signature'] as string | undefined;
+
+      console.log('[WEBHOOK] ========== Pay Shark Transfer Webhook ==========');
+      console.log('[WEBHOOK] Status:', body?.status, 'Id:', body?.id, 'ExternalRef:', body?.externalRef);
+      console.log('[WEBHOOK] Body:', JSON.stringify(body, null, 2));
+
+      const sigResult = verifyPaySharkSignature(rawBody, signature, env.PAYSHARK_WEBHOOK_SECRET_TRANSFER);
+      if (sigResult === 'invalid') {
+        console.log('[WEBHOOK] ⚠️ Pay Shark Transfer: assinatura HMAC inválida');
+        return reply.status(401).send({ error: 'invalid signature' });
+      }
+
+      await handleSharkTransferWebhook(body, transferOpts);
+      return reply.send({ received: true });
+    });
+
+    ps.post('/payshark', {
+      preHandler: [webhookRateLimit],
+    }, async (request, reply) => {
+      const body = request.body as any;
+      const rawBody = (request as any).rawBody as string | undefined;
+      const signature = request.headers['x-signature'] as string | undefined;
+
+      console.log('[WEBHOOK] ========== Pay Shark Payment Webhook ==========');
+      console.log('[WEBHOOK] Status:', body?.status, 'Id:', body?.id);
+      console.log('[WEBHOOK] Body:', JSON.stringify(body, null, 2));
+
+      // Saque cadastrado com a URL base no painel cai aqui: delega.
+      if (isSharkTransferPayload(body)) {
+        console.log('[WEBHOOK] 🔁 /payshark detectou payload de transferência, delegando');
+        const sigResult = verifyPaySharkSignature(rawBody, signature, env.PAYSHARK_WEBHOOK_SECRET_TRANSFER);
+        if (sigResult === 'invalid') {
+          console.log('[WEBHOOK] ⚠️ Pay Shark Transfer: assinatura HMAC inválida');
+          return reply.status(401).send({ error: 'invalid signature' });
+        }
+        await handleSharkTransferWebhook(body, transferOpts);
+        return reply.send({ received: true });
+      }
+
+      const sigResult = verifyPaySharkSignature(rawBody, signature, env.PAYSHARK_WEBHOOK_SECRET);
+      if (sigResult === 'invalid') {
+        console.log('[WEBHOOK] ⚠️ Pay Shark: assinatura HMAC inválida');
+        return reply.status(401).send({ error: 'invalid signature' });
+      }
+      if (sigResult === 'skip' && env.PAYSHARK_WEBHOOK_SECRET && !signature) {
+        // Webhooks enviados para a notificationUrl da cobrança vêm sem X-Signature (documentado).
+        console.log('[WEBHOOK] ℹ️ Pay Shark: sem X-Signature (notificationUrl), seguindo sem validar');
+      }
+
+      if (!body?.id || !body?.status) {
+        console.log('[WEBHOOK] ⚠️ Pay Shark: payload sem id/status, ignorando');
+        return reply.send({ received: true });
+      }
+
+      const paysharkTransactionId = String(body.id);
+
+      let payment = await prisma.payment.findFirst({
+        where: { efi_txid: paysharkTransactionId },
+        include: { user: true },
+      });
+
+      // Fallback pelo externalRef: a API pública cria o payment antes do txid
+      // existir, e o webhook pode chegar antes do UPDATE do txid.
+      if (!payment && body.externalRef) {
+        payment = await prisma.payment.findFirst({
+          where: {
+            metadata: { path: ['external_reference'], equals: String(body.externalRef) },
+          },
+          orderBy: { created_at: 'desc' },
+          include: { user: true },
+        });
+        if (payment && !payment.efi_txid) {
+          await prisma.payment.update({
+            where: { id: payment.id },
+            data: { efi_txid: paysharkTransactionId },
+          });
+          payment.efi_txid = paysharkTransactionId;
+          console.log(`[WEBHOOK] Pay Shark ${paysharkTransactionId} casado via externalRef ${body.externalRef}`);
+        }
+      }
+
+      if (!payment) {
+        console.log(`[WEBHOOK] Pay Shark: payment não encontrado (txid=${paysharkTransactionId})`);
+        return reply.send({ received: true });
+      }
+
+      // Idempotência: reentregas de uma venda já creditada não fazem nada
+      if (payment.status === 'RECEIVED') {
+        console.log(`[WEBHOOK] Pay Shark ${paysharkTransactionId} já está RECEIVED, ignorando`);
+        return reply.send({ received: true });
+      }
+
+      const newStatus = mapPaySharkPaymentStatus(body.status);
+      if (newStatus === payment.status) {
+        return reply.send({ received: true });
+      }
+
+      // Atualização atômica quando vira RECEIVED (evita race com reentregas)
+      if (newStatus === 'RECEIVED') {
+        const updated = await prisma.$executeRaw`
+          UPDATE payments SET status = 'RECEIVED', payment_date = NOW(), updated_at = NOW()
+          WHERE id = ${payment.id}::uuid AND status != 'RECEIVED'
+        `;
+        if (updated === 0) {
+          console.log(`[WEBHOOK] Pay Shark ${payment.id} já foi processado, ignorando`);
+          return reply.send({ received: true });
+        }
+      } else {
+        await prisma.payment.update({
+          where: { id: payment.id },
+          data: {
+            status: newStatus,
+            payment_date: payment.payment_date,
+          },
+        });
+      }
+
+      console.log(`[WEBHOOK] Pay Shark ${paysharkTransactionId} atualizado: ${newStatus}`);
+
+      const eventMap: Record<string, string> = {
+        RECEIVED: 'charge.paid',
+        REFUNDED: 'charge.refunded',
+        CANCELLED: 'charge.cancelled',
+        REFUSED: 'charge.refused',
+        PENDING: 'charge.pending',
+      };
+      const updatedPaymentForPostback = await prisma.payment.findUnique({
+        where: { id: payment.id },
+      });
+      if (updatedPaymentForPostback) {
+        sendChargePostback(
+          updatedPaymentForPostback,
+          eventMap[newStatus] || `charge.${newStatus.toLowerCase()}`,
+        );
+      }
+
+      if (newStatus === 'RECEIVED') {
+        const grossValue = Number(payment.value);
+
+        const customRates = await prisma.userCustomRate.findUnique({
+          where: { user_id: payment.user_id },
+        });
+        const baseRates = await getEffectiveRates(
+          customRates
+            ? { pix_rate: customRates.pix_rate ? Number(customRates.pix_rate) : undefined }
+            : null,
+        );
+        const rates = applyProviderRateOverrides(baseRates, 'payshark', !!customRates?.pix_rate);
+        const feeCalc = calculatePixFeeSellerPays(grossValue, rates);
+
+        await creditPaymentOnReceive({
+          payment,
+          providerLabel: 'payshark',
+          feeCalc,
+          rates,
+          providerTransactionId: paysharkTransactionId,
+        });
+
+        try {
+          const customerName = body?.payer?.name || 'Cliente';
+          await notifySale(payment.user_id, grossValue, customerName, payment.id);
+        } catch (pushError) {
+          console.error('[WEBHOOK] Pay Shark erro push:', pushError);
+        }
+
+        try {
+          await sendUserWebhook(payment.user_id, 'payment.received', {
+            payment_id: payment.id,
+            value: grossValue,
+            net_value: feeCalc.netValue,
+            status: 'RECEIVED',
+            billing_type: 'PIX',
+            provider: 'payshark',
+          });
+        } catch (webhookError) {
+          console.error('[WEBHOOK] Pay Shark erro postback:', webhookError);
+        }
+
+        try {
+          const metadata = payment.metadata as any;
+          await sendUtmifyPostback({
+            paymentId: payment.id,
+            sellerId: payment.user_id,
+            value: grossValue,
+            netValue: feeCalc.netValue,
+            platformFee: feeCalc.platformFee,
+            status: 'paid',
+            customerName: metadata?.customer_name || body?.payer?.name || 'Cliente',
+            customerEmail: metadata?.customer_email || body?.payer?.email || '',
+            customerPhone: metadata?.customer_phone || body?.payer?.phone || undefined,
+            customerDocument: metadata?.customer_document || body?.payer?.taxId || undefined,
+            productName: payment.description || 'Produto ZucroPay',
+            productId: payment.payment_link_id || undefined,
+            createdAt: payment.created_at.toISOString().replace('T', ' ').substring(0, 19),
+            approvedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+          });
+        } catch (utmifyError) {
+          console.error('[WEBHOOK] Pay Shark UTMify erro:', utmifyError);
+        }
+      }
+
+      if (newStatus === 'PENDING') {
+        try {
+          await notifySalePending(payment.user_id, Number(payment.value), payment.id);
+        } catch (pushError) {
+          console.error('[WEBHOOK] Pay Shark erro push pendente:', pushError);
         }
       }
 

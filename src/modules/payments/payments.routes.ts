@@ -7,6 +7,7 @@ import { createEuSouZucroPayPixCharge } from '../../providers/eusouzucropay/euso
 import { createXflowPixCharge } from '../../providers/xflow/xflow.pix';
 import { createUvviPayPixCharge } from '../../providers/uvvipay/uvvipay.pix';
 import { createUvviPayCardCharge } from '../../providers/uvvipay/uvvipay.card';
+import { createPaySharkPixCharge } from '../../providers/payshark/payshark.pix';
 import { env } from '../../config/env';
 import {
   getEffectiveRates,
@@ -311,7 +312,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
 
       // PIX para todos; cartão só para vendedores na UvviPay com a flag ligada.
       // Com UVVIPAY_CARD_ENABLED=false o comportamento é o de antes: só PIX.
-      const providerForMethod = (link.user as any)?.payment_provider || 'eusouzucropay';
+      const providerForMethod = (link.user as any)?.payment_provider || 'payshark';
       const isCardCheckout = body.billingType === 'CREDIT_CARD';
 
       if (isCardCheckout) {
@@ -367,8 +368,8 @@ export async function paymentsRoutes(app: FastifyInstance) {
         splitsToPersist = validation.normalized;
       }
 
-      // Determinar provider do seller (default: eusouzucropay)
-      const sellerProvider = (link.user as any)?.payment_provider || 'eusouzucropay';
+      // Determinar provider do seller (default: payshark)
+      const sellerProvider = (link.user as any)?.payment_provider || 'payshark';
       console.log(`[CHECKOUT PIX] ${sellerProvider} - vendedor: ${link.user.name} (${link.user_id})`);
 
       let chargeResult: {
@@ -412,6 +413,17 @@ export async function paymentsRoutes(app: FastifyInstance) {
           error: cardCharge.error,
           debug: cardCharge.debug,
         };
+      } else if (sellerProvider === 'payshark') {
+        chargeResult = await createPaySharkPixCharge({
+          value: baseValue,
+          description,
+          customerName: body.customerName,
+          customerEmail: body.customerEmail,
+          customerCpf: body.customerCpfCnpj,
+          customerPhone: body.customerPhone,
+          externalRef: `zp_${link.id}_${Date.now()}`,
+          ip: clientIp,
+        });
       } else if (sellerProvider === 'xflow') {
         chargeResult = await createXflowPixCharge({
           value: baseValue,
@@ -504,7 +516,9 @@ export async function paymentsRoutes(app: FastifyInstance) {
             fee_payer: 'seller',
             seller_rates: rates,
             payment_provider: sellerProvider,
-            ...(sellerProvider === 'xflow'
+            ...(sellerProvider === 'payshark'
+              ? { payshark_transaction_id: chargeResult.transactionId }
+              : sellerProvider === 'xflow'
               ? { xflow_transaction_id: chargeResult.transactionId }
               : sellerProvider === 'enki'
               ? { enki_transaction_id: chargeResult.transactionId }

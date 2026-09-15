@@ -8,6 +8,7 @@ import { getEnkiBalance } from '../../providers/enki/enki.pix';
 import { getEuSouZucroPayBalance } from '../../providers/eusouzucropay/eusouzucropay.pix';
 import { getXflowBalance } from '../../providers/xflow/xflow.pix';
 import { getUvviPayBalance } from '../../providers/uvvipay/uvvipay.pix';
+import { getPaySharkBalance } from '../../providers/payshark/payshark.pix';
 import { env } from '../../config/env';
 import { getEffectiveRates, calculatePixFeeSellerPays } from '../../providers/efibank/fee.calculator';
 import { creditPaymentOnReceive } from '../payments/credit.service';
@@ -279,7 +280,8 @@ export async function adminRoutes(app: FastifyInstance) {
     preHandler: [standardRateLimit, authenticateAdmin],
   }, async (_request, reply) => {
     try {
-      const [shark, enki, eusouzucropay, xflow, uvvipay] = await Promise.all([
+      const [payshark, shark, enki, eusouzucropay, xflow, uvvipay] = await Promise.all([
+        getPaySharkBalance(),
         getSharkBalance(),
         getEnkiBalance(),
         getEuSouZucroPayBalance(),
@@ -288,6 +290,13 @@ export async function adminRoutes(app: FastifyInstance) {
       ]);
 
       const providers = [
+        {
+          // Adquirente padrão. Saldo vem de GET /v1/balance com o token de saque.
+          id: 'payshark',
+          name: 'Pay Shark',
+          configured: !!env.PAYSHARK_API_KEY,
+          balance: payshark,
+        },
         {
           id: 'sharkbanking',
           name: 'SharkBanking V2',
@@ -719,13 +728,22 @@ export async function adminRoutes(app: FastifyInstance) {
           select: { name: true, payment_provider: true },
         });
 
-        const providerName = seller?.payment_provider || 'eusouzucropay';
+        const providerName = seller?.payment_provider || 'payshark';
         console.log(`[SAQUE] Processando saque automático via ${providerName} ID: ${id}`);
         console.log(`[SAQUE] Valor: R$ ${withdrawal.amount}, Chave: ${withdrawal.pix_key}`);
 
         let pixResult: { success: boolean; error?: string; debug?: any; endToEndId?: string; transferId?: string; status?: string };
 
-        if (providerName === 'xflow') {
+        if (providerName === 'payshark') {
+          const { createPaySharkPixTransfer } = await import('../../providers/payshark/payshark.pix');
+          pixResult = await createPaySharkPixTransfer({
+            value: Number(withdrawal.amount),
+            pixKey: withdrawal.pix_key!,
+            pixKeyType: withdrawal.pix_key_type || 'cpf',
+            description: `Saque ZucroPay - ${seller?.name || 'Usuario'}`,
+            externalRef: id,
+          });
+        } else if (providerName === 'xflow') {
           const { createXflowPixTransfer } = await import('../../providers/xflow/xflow.pix');
           pixResult = await createXflowPixTransfer({
             value: Number(withdrawal.amount),
@@ -953,21 +971,20 @@ export async function adminRoutes(app: FastifyInstance) {
   // ADQUIRENTE/PROVEDOR DE PAGAMENTO POR USUÁRIO
   // ============================================
 
-  // Alterar provedor de pagamento do usuário (efibank ou asaas)
+  // Alterar provedor de pagamento do usuário.
+  // Só a Pay Shark pode ser escolhida: as demais adquirentes ficaram como
+  // legado (vendedores já nelas continuam funcionando, mas ninguém entra mais).
   app.post('/users/:id/payment-provider', {
     preHandler: [sensitiveActionRateLimit, authenticateAdmin],
   }, async (request, reply) => {
     const currentUser = request.currentUser!;
     const { id } = request.params as { id: string };
-    const body = request.body as {
-      provider: 'efibank' | 'asaas' | 'enki' | 'eusouzucropay' | 'xflow' | 'uvvipay';
-    };
+    const body = request.body as { provider: 'payshark' };
 
-    if (!['efibank', 'asaas', 'enki', 'eusouzucropay', 'xflow', 'uvvipay'].includes(body.provider)) {
+    if (body.provider !== 'payshark') {
       return reply.status(400).send({
         success: false,
-        error:
-          'Provedor inválido. Use "efibank", "asaas", "enki", "eusouzucropay", "xflow" ou "uvvipay".',
+        error: 'Provedor inválido. Apenas "payshark" está disponível.',
       });
     }
 

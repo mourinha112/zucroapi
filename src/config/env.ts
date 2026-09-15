@@ -64,6 +64,18 @@ export const env = {
   // Cartão desligado por padrão: só liga quando o fluxo estiver homologado
   UVVIPAY_CARD_ENABLED: process.env.UVVIPAY_CARD_ENABLED === 'true',
 
+  // Pay Shark — adquirente padrão (PIX). Bearer com DOIS tokens do painel
+  // (Financeiro → Integrações): o padrão para cobrança e o "API Withdrawal
+  // Credentials" para saque/saldo. Docs: https://app.gatewaypayshark.com.br/docs
+  PAYSHARK_API_KEY: process.env.PAYSHARK_API_KEY || '',
+  PAYSHARK_WITHDRAW_KEY: process.env.PAYSHARK_WITHDRAW_KEY || '',
+  // URL pública do webhook de pagamento (ex.: https://api.seudominio.com/api/webhooks/payshark).
+  // O de saque é a mesma URL + "/transfer".
+  PAYSHARK_WEBHOOK_URL: process.env.PAYSHARK_WEBHOOK_URL || '',
+  // Segredos HMAC (X-Signature) — só chegam em webhooks cadastrados no PAINEL da Pay Shark.
+  PAYSHARK_WEBHOOK_SECRET: process.env.PAYSHARK_WEBHOOK_SECRET || '',
+  PAYSHARK_WEBHOOK_SECRET_TRANSFER: process.env.PAYSHARK_WEBHOOK_SECRET_TRANSFER || '',
+
   // Resend (Email)
   RESEND_API_KEY: process.env.RESEND_API_KEY || '',
 
@@ -83,5 +95,10 @@ if (env.NODE_ENV === 'production') {
     if (!process.env[key]) {
       throw new Error(`Variável de ambiente ${key} é obrigatória em produção`);
     }
+  }
+  // Pay Shark é a adquirente padrão: sem a chave, nenhuma cobrança nova sai.
+  // Aviso (e não erro) para não derrubar o boot durante a migração das credenciais.
+  if (!process.env.PAYSHARK_API_KEY) {
+    console.warn('[ENV] ⚠️ PAYSHARK_API_KEY não configurada — cobranças PIX via Pay Shark vão falhar');
   }
 }
