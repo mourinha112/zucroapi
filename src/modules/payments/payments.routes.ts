@@ -103,6 +103,35 @@ export async function paymentsRoutes(app: FastifyInstance) {
     return reply.send({ success: true, links });
   });
 
+  // Atualizar link de pagamento (nome, valor, ativo/arquivado)
+  app.put('/links/:id', {
+    preHandler: [standardRateLimit, authenticate],
+  }, async (request, reply) => {
+    const decoded = request.user as { id: string };
+    const { id } = request.params as { id: string };
+    const body = request.body as { name?: string; description?: string; amount?: number; active?: boolean; checkout_config?: Record<string, unknown> | null };
+
+    const existing = await prisma.paymentLink.findFirst({ where: { id, user_id: decoded.id } });
+    if (!existing) {
+      return reply.status(404).send({ success: false, error: 'Link não encontrado' });
+    }
+
+    const data: { name?: string; description?: string; amount?: number; active?: boolean; checkout_config?: any; updated_at: Date } = { updated_at: new Date() };
+    if (typeof body.name === 'string' && body.name.trim()) data.name = body.name.trim().slice(0, 200);
+    if (typeof body.description === 'string') data.description = body.description;
+    if (typeof body.amount === 'number' && body.amount > 0) data.amount = body.amount;
+    if (typeof body.active === 'boolean') data.active = body.active;
+    if (body.checkout_config !== undefined) {
+      if (body.checkout_config !== null && typeof body.checkout_config !== 'object') {
+        return reply.status(400).send({ success: false, error: 'checkout_config inválido' });
+      }
+      data.checkout_config = body.checkout_config;
+    }
+
+    const link = await prisma.paymentLink.update({ where: { id }, data });
+    return reply.send({ success: true, link });
+  });
+
   // Criar link de pagamento
   app.post('/links', {
     preHandler: [createResourceRateLimit, authenticate],
@@ -208,6 +237,8 @@ export async function paymentsRoutes(app: FastifyInstance) {
         customerCpfCnpj?: string;
         customerPhone?: string;
         couponCode?: string;
+        /** Order bumps marcados no checkout (ids de OrderBump do produto do link). */
+        orderBumpIds?: string[];
         /** Só usado quando billingType = CREDIT_CARD (hoje: apenas UvviPay). */
         card?: {
           number: string;
@@ -258,6 +289,22 @@ export async function paymentsRoutes(app: FastifyInstance) {
       } : null);
 
       let baseValue = Number(link.amount);
+
+      // Order bumps: só os do produto deste link, ativos e visíveis no checkout; preço vem do banco.
+      const selectedBumps: Array<{ id: string; name: string; price: number }> = [];
+      const bumpIds = Array.isArray(body.orderBumpIds) ? body.orderBumpIds.filter((v) => typeof v === 'string').slice(0, 20) : [];
+      if (bumpIds.length && link.product_id) {
+        const bumps = await prisma.orderBump.findMany({
+          where: { id: { in: bumpIds }, product_id: link.product_id, active: true, show_in_checkout: true },
+          select: { id: true, name: true, price: true },
+        });
+        for (const b of bumps) {
+          const price = Math.round(Number(b.price) * 100) / 100;
+          selectedBumps.push({ id: b.id, name: b.name, price });
+          baseValue = Math.round((baseValue + price) * 100) / 100;
+        }
+      }
+
       const originalValue = baseValue;
       const description = link.product?.name || link.name || 'Pagamento ZucroPay';
       let appliedCoupon: any = null;
@@ -511,6 +558,8 @@ export async function paymentsRoutes(app: FastifyInstance) {
           payment_link_id: link.id,
           metadata: JSON.parse(JSON.stringify({
             base_value: baseValue,
+            order_bumps: selectedBumps.length ? selectedBumps : undefined,
+            order_bumps_total: selectedBumps.length ? selectedBumps.reduce((a, b) => a + b.price, 0) : undefined,
             platform_fee: feeCalc.platformFee,
             reserve_amount: feeCalc.reserveAmount,
             fee_payer: 'seller',
@@ -657,6 +706,27 @@ export async function paymentsRoutes(app: FastifyInstance) {
     const baseValue = Number(link.amount);
     const feePayer = (link.product as any)?.fee_payer || 'seller';
 
+    // Cupons ativos válidos para este link (o checkout mostra o desconto antes de gerar o Pix;
+    // o valor cobrado é sempre recalculado no POST /checkout).
+    const nowForCoupons = new Date();
+    const activeCoupons = await prisma.coupon.findMany({
+      where: {
+        user_id: link.user_id,
+        active: true,
+        OR: [{ product_id: null }, ...(link.product_id ? [{ product_id: link.product_id }] : [])],
+      },
+      select: { code: true, discount_type: true, discount_value: true, max_uses: true, used_count: true, starts_at: true, expires_at: true, min_value: true, max_discount: true },
+    });
+    const publicCoupons = activeCoupons
+      .filter((c) => (!c.starts_at || nowForCoupons >= c.starts_at) && (!c.expires_at || nowForCoupons <= c.expires_at) && (c.max_uses === null || c.used_count < c.max_uses))
+      .map((c) => ({
+        code: c.code,
+        discountType: c.discount_type,
+        discountValue: Number(c.discount_value),
+        minValue: c.min_value ? Number(c.min_value) : null,
+        maxDiscount: c.max_discount ? Number(c.max_discount) : null,
+      }));
+
     // Somente PIX - sem opções de parcelamento
     const installmentOptions = [{
       installments: 1,
@@ -683,6 +753,8 @@ export async function paymentsRoutes(app: FastifyInstance) {
         fixed: rates.fixed_fee,
         installment: rates.installment_fee,
       },
+      checkoutConfig: (link as any).checkout_config || null,
+      coupons: publicCoupons,
       orderBumps: orderBumps.map(ob => ({
         id: ob.id,
         name: ob.name,

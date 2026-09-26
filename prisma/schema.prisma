@@ -470,6 +470,7 @@ model PaymentLink {
   billing_type         String    @default("UNDEFINED") @db.VarChar(20)
   default_billing_type String    @default("PIX") @db.VarChar(20)
   active               Boolean   @default(true)
+  checkout_config      Json?     // configuração do checkout Las Vegas (editor Vega)
   clicks               Int       @default(0)
   payments_count       Int       @default(0)
   total_received       Decimal   @default(0) @db.Decimal(10, 2)
