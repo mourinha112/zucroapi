@@ -43,6 +43,7 @@ model User {
   blocked_by                String?   @db.Uuid
   blocked_reason            String?
   notification_preferences  Json      @default("{\"sale_approved\":true,\"sale_pending\":true,\"withdrawal_approved\":true}") // Preferências de notificação push
+  activation                Json?     // Fluxo "Ativar conta" (wizard CPF/CNPJ, documentos, KYC facial, Pix): { type, step, data, finished, submitted_at }
   created_at                DateTime  @default(now()) @db.Timestamptz
   updated_at                DateTime  @default(now()) @db.Timestamptz
 
@@ -97,6 +98,7 @@ model Product {
   name                  String    @db.VarChar(200)
   description           String?
   subtitle              String?   @db.VarChar(200)
+  extras                Json?     // upsells, frete, cupons progressivos, afiliados (editor de produto)
   price                 Decimal   @db.Decimal(10, 2)
   image_url             String?
   cover_url             String?

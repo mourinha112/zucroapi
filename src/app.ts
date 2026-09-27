@@ -14,6 +14,7 @@ import { scheduleReserveRelease } from './queues/webhook.queue';
 // Import routes
 import { authRoutes } from './modules/auth/auth.routes';
 import { usersRoutes } from './modules/users/users.routes';
+import { activationRoutes } from './modules/users/activation.routes';
 import { productsRoutes } from './modules/products/products.routes';
 import { memberAreaRoutes, memberAreaPublicRoutes } from './modules/products/member-area.routes';
 import { paymentsRoutes } from './modules/payments/payments.routes';
@@ -261,6 +262,7 @@ async function bootstrap() {
   // API Routes
   app.register(authRoutes, { prefix: '/api/auth' });
   app.register(usersRoutes, { prefix: '/api/users' });
+  app.register(activationRoutes, { prefix: '/api/users/activation' });
   app.register(productsRoutes, { prefix: '/api/products' });
   app.register(memberAreaRoutes, { prefix: '/api/products' });
   app.register(memberAreaPublicRoutes, { prefix: '/api/member-area' });

@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../config/database';
+import { Prisma } from '@prisma/client';
 import { authenticateAdmin, standardRateLimit, sensitiveActionRateLimit } from '../../middlewares';
 import { notifyWithdrawalApproved, notifyWithdrawalRejected, notifySale } from '../push/push.service';
 import { sendAccountApprovedEmail } from '../auth/email.service';
@@ -1262,6 +1263,120 @@ export async function adminRoutes(app: FastifyInstance) {
       console.error('Erro ao rejeitar verificação:', error);
       return reply.status(500).send({ success: false, error: error.message });
     }
+  });
+
+  // ========== ATIVAÇÃO DE CONTA (wizard "Ativar conta" — users.activation) ==========
+
+  // Lista cadastros do wizard para revisão. Por padrão só os enviados (finished=true);
+  // ?all=1 inclui rascunhos; ?status=pending_review|active|rejected filtra por account_status.
+  app.get('/activations', {
+    preHandler: [standardRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    const query = request.query as { status?: string; all?: string };
+
+    const users = await prisma.user.findMany({
+      where: {
+        activation: { not: Prisma.AnyNull },
+        ...(query.status && { account_status: query.status }),
+      },
+      orderBy: { updated_at: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        cpf_cnpj: true,
+        phone: true,
+        person_type: true,
+        account_status: true,
+        account_status_reason: true,
+        account_reviewed_at: true,
+        identity_verified: true,
+        activation: true,
+        created_at: true,
+      },
+    });
+
+    type Act = { type?: string; step?: number; data?: Record<string, unknown>; finished?: boolean; submitted_at?: string | null; updated_at?: string; review?: unknown };
+    const activations = users
+      .map((u) => ({ ...u, activation: (u.activation || null) as Act | null }))
+      .filter((u) => query.all === '1' || !!(u.activation && u.activation.finished))
+      .sort((a, b) => {
+        const ta = Date.parse((a.activation && (a.activation.submitted_at || a.activation.updated_at)) || '') || 0;
+        const tb = Date.parse((b.activation && (b.activation.submitted_at || b.activation.updated_at)) || '') || 0;
+        return tb - ta;
+      });
+
+    return reply.send({ success: true, activations });
+  });
+
+  // Aprova ou reprova um cadastro enviado pelo wizard.
+  // approved  -> account_status 'active' + identity_verified (libera vendas/saques)
+  // rejected  -> account_status 'rejected', activation.finished=false (banner volta e o
+  //              usuário pode corrigir e reenviar); motivo fica em activation.review.reason
+  app.post('/activations/:userId/review', {
+    preHandler: [sensitiveActionRateLimit, authenticateAdmin],
+  }, async (request, reply) => {
+    const currentUser = request.currentUser!;
+    const { userId } = request.params as { userId: string };
+    const body = (request.body || {}) as { status?: string; reason?: string };
+
+    if (body.status !== 'approved' && body.status !== 'rejected') {
+      return reply.status(400).send({ success: false, error: "status deve ser 'approved' ou 'rejected'" });
+    }
+    if (body.status === 'rejected' && !(body.reason || '').trim()) {
+      return reply.status(400).send({ success: false, error: 'Informe o motivo da reprovação' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, email: true, activation: true, account_status: true },
+    });
+    if (!user) return reply.status(404).send({ success: false, error: 'Usuário não encontrado' });
+
+    const previous = (user.activation && typeof user.activation === 'object' && !Array.isArray(user.activation))
+      ? (user.activation as Record<string, unknown>)
+      : null;
+    if (!previous) return reply.status(400).send({ success: false, error: 'Usuário não iniciou a ativação da conta' });
+
+    const now = new Date();
+    const approved = body.status === 'approved';
+    const activation = {
+      ...previous,
+      finished: approved ? true : false,
+      review: { status: body.status, reason: body.reason || null, at: now.toISOString(), by: currentUser.id },
+    };
+
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        activation: activation as any,
+        account_status: approved ? 'active' : 'rejected',
+        account_status_reason: approved ? null : body.reason,
+        account_reviewed_by: currentUser.id,
+        account_reviewed_at: now,
+        ...(approved && { identity_verified: true }),
+        updated_at: now,
+      },
+      select: { id: true, account_status: true, activation: true },
+    });
+
+    await prisma.adminLog.create({
+      data: {
+        admin_id: currentUser.id,
+        action: approved ? 'approve_activation' : 'reject_activation',
+        target_type: 'user',
+        target_id: user.id,
+        details: { status: body.status, reason: body.reason || null },
+      },
+    });
+
+    if (approved && user.email) {
+      sendAccountApprovedEmail(user.email, user.name || 'Cliente').catch((err) => {
+        console.error('[admin/activations/review] Falha ao enviar email de aprovação:', err);
+      });
+    }
+
+    return reply.send({ success: true, user: updated });
   });
 
   // Configurações do Gateway (EfiBank)

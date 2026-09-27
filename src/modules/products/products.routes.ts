@@ -138,6 +138,37 @@ export async function productsRoutes(app: FastifyInstance) {
   });
 
   // Deletar produto
+  // Extras do editor de produto (JSON livre: upsells, shipping, progressiveCoupons, affiliates…)
+  app.get('/:id/extras', {
+    preHandler: [standardRateLimit, authenticate],
+  }, async (request, reply) => {
+    const decoded = request.user as { id: string };
+    const { id } = request.params as { id: string };
+    const product = await prisma.product.findFirst({ where: { id, user_id: decoded.id }, select: { extras: true } });
+    if (!product) return reply.status(404).send({ success: false, error: 'Produto não encontrado' });
+    return reply.send({ success: true, extras: (product.extras as Record<string, unknown> | null) || {} });
+  });
+
+  app.put('/:id/extras', {
+    preHandler: [standardRateLimit, authenticate],
+  }, async (request, reply) => {
+    const decoded = request.user as { id: string };
+    const { id } = request.params as { id: string };
+    const body = request.body as Record<string, unknown> | null;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return reply.status(400).send({ success: false, error: 'Corpo inválido' });
+    }
+    if (JSON.stringify(body).length > 512 * 1024) {
+      return reply.status(413).send({ success: false, error: 'Extras muito grandes (máx. 512 KB)' });
+    }
+    const product = await prisma.product.findFirst({ where: { id, user_id: decoded.id }, select: { id: true, extras: true } });
+    if (!product) return reply.status(404).send({ success: false, error: 'Produto não encontrado' });
+    // merge raso: cada chave (upsells, shipping, …) é substituída por inteiro
+    const merged = { ...((product.extras as Record<string, unknown> | null) || {}), ...body };
+    const updated = await prisma.product.update({ where: { id }, data: { extras: merged as any, updated_at: new Date() } });
+    return reply.send({ success: true, extras: updated.extras || {} });
+  });
+
   app.delete('/:id', {
     preHandler: [standardRateLimit, authenticate],
   }, async (request, reply) => {

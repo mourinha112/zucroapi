@@ -754,6 +754,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
         installment: rates.installment_fee,
       },
       checkoutConfig: (link as any).checkout_config || null,
+      productExtras: ((link.product as any)?.extras) || null,
       coupons: publicCoupons,
       orderBumps: orderBumps.map(ob => ({
         id: ob.id,
