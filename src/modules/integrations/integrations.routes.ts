@@ -586,6 +586,24 @@ export async function integrationsRoutes(app: FastifyInstance) {
     return reply.send({ success: true, message: 'API Key revogada' });
   });
 
+  // Excluir de vez uma chave (some da lista). Se ainda estiver ativa, deixa de valer na hora.
+  app.delete('/keys/:id/permanent', {
+    preHandler: [standardRateLimit, authenticate],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const decoded = request.user as { id: string };
+    const { id } = request.params as { id: string };
+
+    const result = await prisma.apiKey.deleteMany({
+      where: { id, user_id: decoded.id },
+    });
+
+    if (result.count === 0) {
+      return reply.status(404).send({ error: 'API Key não encontrada' });
+    }
+
+    return reply.send({ success: true, message: 'API Key excluída' });
+  });
+
   // ========================================
   // CUSTOMERS - Gerenciar clientes
   // ========================================
