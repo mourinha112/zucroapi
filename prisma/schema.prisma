@@ -44,6 +44,15 @@ model User {
   blocked_reason            String?
   notification_preferences  Json      @default("{\"sale_approved\":true,\"sale_pending\":true,\"withdrawal_approved\":true}") // Preferências de notificação push
   activation                Json?     // Fluxo "Ativar conta" (wizard CPF/CNPJ, documentos, KYC facial, Pix): { type, step, data, finished, submitted_at }
+  bank_code                 String?   @db.VarChar(10)
+  bank_agency               String?   @db.VarChar(20)
+  bank_account              String?   @db.VarChar(30)
+  bank_account_type         String?   @db.VarChar(20)
+  pix_key                   String?   @db.VarChar(140)
+  pix_key_type              String?   @db.VarChar(20)
+  acquirer_settings         Json?     // { order[], rules{}, ab{} } — página Adquirentes
+  password_reset_token      String?   @db.VarChar(80)
+  password_reset_expires    DateTime? @db.Timestamptz
   created_at                DateTime  @default(now()) @db.Timestamptz
   updated_at                DateTime  @default(now()) @db.Timestamptz
 
@@ -73,6 +82,8 @@ model User {
   login_codes            LoginCode[]
   received_splits        PaymentSplit[]      @relation("SplitRecipient")
   product_split_rules    ProductSplitRule[]  @relation("SplitRuleRecipient")
+  domains                Domain[]
+  collaborators          Collaborator[]
 
   @@map("users")
 }
@@ -399,6 +410,9 @@ model Payment {
   pix_qrcode      String?
   pix_copy_paste  String?
   metadata        Json      @default("{}")
+  receipt_url         String?
+  receipt_name        String?   @db.VarChar(200)
+  receipt_uploaded_at DateTime? @db.Timestamptz
   payment_link_id String?   @db.Uuid
   subscription_id String?   @db.Uuid // Vinculo com assinatura
   has_split       Boolean   @default(false)
@@ -472,6 +486,7 @@ model PaymentLink {
   billing_type         String    @default("UNDEFINED") @db.VarChar(20)
   default_billing_type String    @default("PIX") @db.VarChar(20)
   active               Boolean   @default(true)
+  domain_id            String?   @db.Uuid
   checkout_config      Json?     // configuração do checkout Las Vegas (editor Vega)
   clicks               Int       @default(0)
   payments_count       Int       @default(0)
@@ -481,9 +496,48 @@ model PaymentLink {
 
   user     User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
   product  Product?  @relation(fields: [product_id], references: [id])
+  domain   Domain?   @relation(fields: [domain_id], references: [id])
   payments Payment[]
 
   @@map("payment_links")
+}
+
+model Domain {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id            String    @db.Uuid
+  name               String    @unique @db.VarChar(253)
+  status             String    @default("pending") @db.VarChar(20) // pending | approved
+  method             String    @default("cname") @db.VarChar(20)
+  cname_target       String    @db.VarChar(253)
+  verified_at        DateTime? @db.Timestamptz
+  last_checked_at    DateTime? @db.Timestamptz
+  verification_error String?
+  created_at         DateTime  @default(now()) @db.Timestamptz
+  updated_at         DateTime  @default(now()) @db.Timestamptz
+
+  user  User          @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  links PaymentLink[]
+
+  @@index([user_id])
+  @@map("domains")
+}
+
+model Collaborator {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  owner_id     String    @db.Uuid
+  email        String    @db.VarChar(200)
+  name         String?   @db.VarChar(200)
+  permissions  Json      @default("[]")
+  status       String    @default("invited") @db.VarChar(20) // invited | active | suspended
+  invite_token String?   @db.VarChar(80)
+  accepted_at  DateTime? @db.Timestamptz
+  created_at   DateTime  @default(now()) @db.Timestamptz
+  updated_at   DateTime  @default(now()) @db.Timestamptz
+
+  owner User @relation(fields: [owner_id], references: [id], onDelete: Cascade)
+
+  @@unique([owner_id, email])
+  @@map("collaborators")
 }
 
 model Transaction {

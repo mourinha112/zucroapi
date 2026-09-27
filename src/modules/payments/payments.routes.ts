@@ -8,6 +8,11 @@ import { createXflowPixCharge } from '../../providers/xflow/xflow.pix';
 import { createUvviPayPixCharge } from '../../providers/uvvipay/uvvipay.pix';
 import { createUvviPayCardCharge } from '../../providers/uvvipay/uvvipay.card';
 import { createPaySharkPixCharge } from '../../providers/payshark/payshark.pix';
+import { readSettings as readAcquirerSettings } from '../acquirers/acquirers.routes';
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
+import { pipeline } from 'stream/promises';
 import { env } from '../../config/env';
 import {
   getEffectiveRates,
@@ -88,6 +93,123 @@ export async function paymentsRoutes(app: FastifyInstance) {
     return reply.send({ success: true, payment: paymentWithCustomer });
   });
 
+  // Comprovante enviado pelo comprador (público; exige o txid da cobrança como prova de posse)
+  app.post('/:id/receipt', {
+    preHandler: [checkoutRateLimit],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const q = request.query as { txid?: string };
+    const payment = await prisma.payment.findUnique({ where: { id } });
+    if (!payment || !q.txid || payment.efi_txid !== q.txid) {
+      return reply.status(404).send({ success: false, error: 'Pagamento não encontrado' });
+    }
+    const data = await request.file();
+    if (!data) return reply.status(400).send({ success: false, error: 'Envie o arquivo no campo "file"' });
+    const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!allowed.includes(data.mimetype)) return reply.status(400).send({ success: false, error: 'Use imagem (JPG, PNG, WEBP) ou PDF' });
+    const dir = path.join(__dirname, '..', '..', '..', 'uploads', 'receipts');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const ext = path.extname(data.filename || '') || (data.mimetype === 'application/pdf' ? '.pdf' : '.jpg');
+    const name = `${crypto.randomBytes(12).toString('hex')}${ext}`;
+    try {
+      await pipeline(data.file, fs.createWriteStream(path.join(dir, name)));
+    } catch (err: any) {
+      request.log.error(err);
+      return reply.status(500).send({ success: false, error: 'Erro ao salvar o comprovante' });
+    }
+    if ((data.file as any).truncated) return reply.status(413).send({ success: false, error: 'Arquivo muito grande (máx. 4 MB)' });
+    const url = `/uploads/receipts/${name}`;
+    await prisma.payment.update({ where: { id }, data: { receipt_url: url, receipt_name: (data.filename || name).slice(0, 200), receipt_uploaded_at: new Date() } });
+    return reply.send({ success: true, receipt: { url, name: data.filename || name, kind: data.mimetype === 'application/pdf' ? 'pdf' : 'image' } });
+  });
+
+  // Upsell 1-clique: nova cobrança Pix para a oferta pós-compra usando os dados do comprador da venda original
+  app.post('/checkout/upsell', {
+    preHandler: [checkoutRateLimit],
+  }, async (request, reply) => {
+    const body = request.body as { paymentId?: string; txid?: string; upsellId?: string };
+    if (!body.paymentId || !body.txid || !body.upsellId) return reply.status(400).send({ success: false, error: 'Dados incompletos' });
+    const original = await prisma.payment.findUnique({ where: { id: body.paymentId }, include: { payment_link: { include: { product: true, user: true } } } });
+    if (!original || original.efi_txid !== body.txid || !original.payment_link || !original.payment_link.product) {
+      return reply.status(404).send({ success: false, error: 'Venda não encontrada' });
+    }
+    if (!['RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH', 'PAID'].includes(String(original.status).toUpperCase())) {
+      return reply.status(400).send({ success: false, error: 'A compra original ainda não foi confirmada' });
+    }
+    const extras = ((original.payment_link.product as any).extras || {}) as { upsells?: any[] };
+    const up = Array.isArray(extras.upsells) ? extras.upsells.find((u) => u && u.id === body.upsellId && u.active !== false) : null;
+    if (!up) return reply.status(404).send({ success: false, error: 'Oferta indisponível' });
+    const base = Number(up.productPrice) || 0;
+    let price = base;
+    if (up.mode === 'percent') price = base - base * ((Number(up.percent) || 0) / 100);
+    else if (up.mode === 'amount') price = base - (Number(up.amount) || 0);
+    price = Math.max(0.01, Math.round(price * 100) / 100);
+    const upsellProduct = up.productId ? await prisma.product.findFirst({ where: { id: up.productId, user_id: original.user_id } }) : null;
+    const description = upsellProduct?.name || up.productName || up.name || 'Oferta especial';
+    const meta = (original.metadata && typeof original.metadata === 'object') ? (original.metadata as any) : {};
+    const customerName = String(meta.customer_name || 'Cliente');
+    const customerEmail = String(meta.customer_email || '');
+    const customerCpf = meta.customer_document ? String(meta.customer_document) : undefined;
+    const customerPhone = meta.customer_phone ? String(meta.customer_phone) : undefined;
+    const clientIp = (request.headers['x-forwarded-for'] as string) || request.ip || 'unknown';
+    const seller = original.payment_link.user as any;
+    const settings = readAcquirerSettings(seller);
+    const candidates = settings.order.length ? settings.order : [seller.payment_provider || 'payshark'];
+    const pixArgs = { value: price, description, customerName, customerEmail, customerCpf, customerPhone, externalRef: `zp_up_${original.id}_${Date.now()}` };
+    let result: any = { success: false, error: 'Nenhuma adquirente disponível' };
+    let used = candidates[0];
+    for (const provider of candidates) {
+      try {
+        result = provider === 'payshark' ? await createPaySharkPixCharge({ ...pixArgs, ip: clientIp })
+          : provider === 'xflow' ? await createXflowPixCharge(pixArgs)
+          : provider === 'enki' ? await createEnkiPixCharge(pixArgs)
+          : provider === 'eusouzucropay' ? await createEuSouZucroPayPixCharge(pixArgs)
+          : provider === 'uvvipay' ? await createUvviPayPixCharge(pixArgs)
+          : await createSharkPixCharge(pixArgs);
+      } catch (e: any) { result = { success: false, error: e?.message }; }
+      used = provider;
+      if (result.success && result.pixCode) break;
+      if (settings.rules && settings.rules.autoSwitch === false) break;
+    }
+    if (!result.success || !result.pixCode) return reply.send({ success: false, message: result.error || 'Erro ao gerar Pix', error: result.error || 'Erro ao gerar Pix' });
+    const customRates = await prisma.userCustomRate.findUnique({ where: { user_id: original.user_id } });
+    const rates = await getEffectiveRates(customRates ? { pix_rate: customRates.pix_rate ? Number(customRates.pix_rate) : undefined } : null);
+    const feeCalc = calculatePixFeeSellerPays(price, applyProviderRateOverrides(rates, used, !!customRates?.pix_rate));
+    const saved = await prisma.payment.create({
+      data: {
+        user_id: original.user_id,
+        billing_type: 'PIX',
+        value: price,
+        net_value: feeCalc.netValue,
+        status: 'PENDING',
+        description,
+        due_date: new Date(),
+        efi_txid: result.transactionId,
+        pix_qrcode: result.pixQrCode,
+        pix_copy_paste: result.pixCode,
+        payment_link_id: original.payment_link_id,
+        metadata: JSON.parse(JSON.stringify({
+          base_value: price,
+          platform_fee: feeCalc.platformFee,
+          reserve_amount: feeCalc.reserveAmount,
+          fee_payer: 'seller',
+          seller_rates: rates,
+          payment_provider: used,
+          [`${used}_transaction_id`]: result.transactionId,
+          upsell_of: original.id,
+          upsell_id: up.id,
+          product_name: description,
+          customer_ip: clientIp,
+          customer_name: customerName,
+          customer_email: customerEmail,
+          customer_document: customerCpf,
+          customer_phone: customerPhone,
+        })),
+      },
+    });
+    return reply.status(201).send({ success: true, payment: { id: saved.id, txid: result.transactionId, status: 'PENDING', pixCode: result.pixCode, pixQrCode: result.pixQrCode, value: price } });
+  });
+
   // Listar links de pagamento
   app.get('/links', {
     preHandler: [standardRateLimit, authenticate],
@@ -109,14 +231,23 @@ export async function paymentsRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const decoded = request.user as { id: string };
     const { id } = request.params as { id: string };
-    const body = request.body as { name?: string; description?: string; amount?: number; active?: boolean; checkout_config?: Record<string, unknown> | null };
+    const body = request.body as { name?: string; description?: string; amount?: number; active?: boolean; checkout_config?: Record<string, unknown> | null; domain_id?: string | null };
 
     const existing = await prisma.paymentLink.findFirst({ where: { id, user_id: decoded.id } });
     if (!existing) {
       return reply.status(404).send({ success: false, error: 'Link não encontrado' });
     }
 
-    const data: { name?: string; description?: string; amount?: number; active?: boolean; checkout_config?: any; updated_at: Date } = { updated_at: new Date() };
+    const data: { name?: string; description?: string; amount?: number; active?: boolean; checkout_config?: any; domain_id?: string | null; updated_at: Date } = { updated_at: new Date() };
+    if (body.domain_id !== undefined) {
+      if (body.domain_id === null || body.domain_id === '') data.domain_id = null;
+      else {
+        const dom = await prisma.domain.findFirst({ where: { id: body.domain_id, user_id: decoded.id } });
+        if (!dom) return reply.status(404).send({ success: false, error: 'Domínio não encontrado' });
+        if (dom.status !== 'approved') return reply.status(400).send({ success: false, error: 'Só é possível vincular domínios aprovados' });
+        data.domain_id = dom.id;
+      }
+    }
     if (typeof body.name === 'string' && body.name.trim()) data.name = body.name.trim().slice(0, 200);
     if (typeof body.description === 'string') data.description = body.description;
     if (typeof body.amount === 'number' && body.amount > 0) data.amount = body.amount;
@@ -239,6 +370,8 @@ export async function paymentsRoutes(app: FastifyInstance) {
         couponCode?: string;
         /** Order bumps marcados no checkout (ids de OrderBump do produto do link). */
         orderBumpIds?: string[];
+        /** Regra de frete escolhida (id em products.extras.shipping). */
+        shippingId?: string;
         /** Só usado quando billingType = CREDIT_CARD (hoje: apenas UvviPay). */
         card?: {
           number: string;
@@ -303,6 +436,18 @@ export async function paymentsRoutes(app: FastifyInstance) {
           selectedBumps.push({ id: b.id, name: b.name, price });
           baseValue = Math.round((baseValue + price) * 100) / 100;
         }
+      }
+
+      // Frete: regra cadastrada na aba Frete do produto (products.extras.shipping); preço vem do banco
+      let selectedShipping: { id: string; name: string; price: number } | null = null;
+      if (body.shippingId && link.product) {
+        const extras = ((link.product as any).extras || {}) as { shipping?: any[] };
+        const rule = Array.isArray(extras.shipping) ? extras.shipping.find((s) => s && s.id === body.shippingId && s.active !== false) : null;
+        if (!rule) return reply.status(400).send({ success: false, message: 'Opção de frete inválida', error: 'Frete inválido' });
+        const parseMoney = (v: unknown) => { const n = parseFloat(String(v ?? '').replace(/\./g, '').replace(',', '.')); return isNaN(n) ? 0 : n; };
+        const price = rule.free ? 0 : Math.round(parseMoney(rule.price) * 100) / 100;
+        selectedShipping = { id: rule.id, name: rule.name || 'Frete', price };
+        baseValue = Math.round((baseValue + price) * 100) / 100;
       }
 
       const originalValue = baseValue;
@@ -415,8 +560,19 @@ export async function paymentsRoutes(app: FastifyInstance) {
         splitsToPersist = validation.normalized;
       }
 
-      // Determinar provider do seller (default: payshark)
-      const sellerProvider = (link.user as any)?.payment_provider || 'payshark';
+      // Determinar provider do seller: A/B ativo (alterna) ou ordem de contingência (tenta a próxima se falhar)
+      let sellerProvider = (link.user as any)?.payment_provider || 'payshark';
+      const acqSettings = readAcquirerSettings(link.user as any);
+      let providerCandidates: string[] = acqSettings.order.length ? acqSettings.order.slice() : [sellerProvider];
+      let abTestId: string | undefined;
+      if (acqSettings.ab && acqSettings.ab.active && acqSettings.ab.acquirers.length >= 2) {
+        const sinceAb = new Date(acqSettings.ab.startedAt);
+        const countAb = await prisma.payment.count({ where: { user_id: link.user_id, billing_type: 'PIX', created_at: { gte: sinceAb } } });
+        const pick = acqSettings.ab.acquirers[countAb % acqSettings.ab.acquirers.length];
+        providerCandidates = [pick, ...providerCandidates.filter((p) => p !== pick)];
+        abTestId = acqSettings.ab.id;
+      }
+      sellerProvider = providerCandidates[0];
       console.log(`[CHECKOUT PIX] ${sellerProvider} - vendedor: ${link.user.name} (${link.user_id})`);
 
       let chargeResult: {
@@ -460,59 +616,8 @@ export async function paymentsRoutes(app: FastifyInstance) {
           error: cardCharge.error,
           debug: cardCharge.debug,
         };
-      } else if (sellerProvider === 'payshark') {
-        chargeResult = await createPaySharkPixCharge({
-          value: baseValue,
-          description,
-          customerName: body.customerName,
-          customerEmail: body.customerEmail,
-          customerCpf: body.customerCpfCnpj,
-          customerPhone: body.customerPhone,
-          externalRef: `zp_${link.id}_${Date.now()}`,
-          ip: clientIp,
-        });
-      } else if (sellerProvider === 'xflow') {
-        chargeResult = await createXflowPixCharge({
-          value: baseValue,
-          description,
-          customerName: body.customerName,
-          customerEmail: body.customerEmail,
-          customerCpf: body.customerCpfCnpj,
-          customerPhone: body.customerPhone,
-          externalRef: `zp_${link.id}_${Date.now()}`,
-        });
-      } else if (sellerProvider === 'enki') {
-        chargeResult = await createEnkiPixCharge({
-          value: baseValue,
-          description,
-          customerName: body.customerName,
-          customerEmail: body.customerEmail,
-          customerCpf: body.customerCpfCnpj,
-          customerPhone: body.customerPhone,
-          externalRef: `zp_${link.id}_${Date.now()}`,
-        });
-      } else if (sellerProvider === 'eusouzucropay') {
-        chargeResult = await createEuSouZucroPayPixCharge({
-          value: baseValue,
-          description,
-          customerName: body.customerName,
-          customerEmail: body.customerEmail,
-          customerCpf: body.customerCpfCnpj,
-          customerPhone: body.customerPhone,
-          externalRef: `zp_${link.id}_${Date.now()}`,
-        });
-      } else if (sellerProvider === 'uvvipay') {
-        chargeResult = await createUvviPayPixCharge({
-          value: baseValue,
-          description,
-          customerName: body.customerName,
-          customerEmail: body.customerEmail,
-          customerCpf: body.customerCpfCnpj,
-          customerPhone: body.customerPhone,
-          externalRef: `zp_${link.id}_${Date.now()}`,
-        });
       } else {
-        chargeResult = await createSharkPixCharge({
+        const pixArgs = {
           value: baseValue,
           description,
           customerName: body.customerName,
@@ -520,8 +625,31 @@ export async function paymentsRoutes(app: FastifyInstance) {
           customerCpf: body.customerCpfCnpj,
           customerPhone: body.customerPhone,
           externalRef: `zp_${link.id}_${Date.now()}`,
-        });
+        };
+        const chargeWith = async (provider: string) => {
+          if (provider === 'payshark') return createPaySharkPixCharge({ ...pixArgs, ip: clientIp });
+          if (provider === 'xflow') return createXflowPixCharge(pixArgs);
+          if (provider === 'enki') return createEnkiPixCharge(pixArgs);
+          if (provider === 'eusouzucropay') return createEuSouZucroPayPixCharge(pixArgs);
+          if (provider === 'uvvipay') return createUvviPayPixCharge(pixArgs);
+          return createSharkPixCharge(pixArgs);
+        };
+        chargeResult = { success: false, error: 'Nenhuma adquirente disponível' };
+        const useFallback = acqSettings.rules && acqSettings.rules.autoSwitch !== false;
+        for (let i = 0; i < providerCandidates.length; i++) {
+          const provider = providerCandidates[i];
+          try {
+            chargeResult = await chargeWith(provider);
+          } catch (e: any) {
+            chargeResult = { success: false, error: e?.message || 'Falha na adquirente' };
+          }
+          sellerProvider = provider;
+          if (chargeResult.success && chargeResult.pixCode) break;
+          console.error(`[CHECKOUT PIX] ${provider} falhou: ${chargeResult.error}`);
+          if (!useFallback) break;
+        }
       }
+
 
       if (!chargeResult.success) {
         const errorMsg = chargeResult.error || 'Erro ao gerar cobrança PIX';
@@ -560,6 +688,8 @@ export async function paymentsRoutes(app: FastifyInstance) {
             base_value: baseValue,
             order_bumps: selectedBumps.length ? selectedBumps : undefined,
             order_bumps_total: selectedBumps.length ? selectedBumps.reduce((a, b) => a + b.price, 0) : undefined,
+            shipping: selectedShipping || undefined,
+            ab_test: abTestId,
             platform_fee: feeCalc.platformFee,
             reserve_amount: feeCalc.reserveAmount,
             fee_payer: 'seller',
@@ -635,7 +765,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
 
     const link = await prisma.paymentLink.findFirst({
       where: { id: linkId, active: true },
-      include: { product: true, user: true },
+      include: { product: true, user: true, domain: true },
     });
 
     console.log('[CHECKOUT GET] Link:', link?.id, '- User:', (link?.user as any)?.name, '- Provider:', (link?.user as any)?.payment_provider);
@@ -755,6 +885,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
       },
       checkoutConfig: (link as any).checkout_config || null,
       productExtras: ((link.product as any)?.extras) || null,
+      domain: (link as any).domain && (link as any).domain.status === 'approved' ? { name: (link as any).domain.name } : null,
       coupons: publicCoupons,
       orderBumps: orderBumps.map(ob => ({
         id: ob.id,

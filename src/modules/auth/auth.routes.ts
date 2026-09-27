@@ -4,7 +4,8 @@ import bcrypt from 'bcryptjs';
 import { authService } from './auth.service';
 import { authenticate, authRateLimit } from '../../middlewares';
 import { prisma } from '../../config/database';
-import { sendLoginCode } from './email.service';
+import { sendLoginCode, sendPasswordResetEmail } from './email.service';
+import crypto from 'crypto';
 import { recordDevice } from '../users/devices.service';
 
 // Schemas de validação
@@ -302,6 +303,36 @@ export async function authRoutes(app: FastifyInstance) {
   // ENDPOINT TEMPORÁRIO - RESET DE SENHA
   // ⚠️ REMOVER APÓS USO EM PRODUÇÃO!
   // ============================================
+  // Esqueci minha senha: envia link com token (sempre responde 200 para não revelar e-mails)
+  app.post('/forgot-password', {
+    preHandler: [authRateLimit],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const parsed = z.object({ email: z.string().email().max(200) }).safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ success: false, error: 'Informe um e-mail válido' });
+    const email = parsed.data.email.trim().toLowerCase();
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (user) {
+      const token = crypto.randomBytes(32).toString('hex');
+      await prisma.user.update({ where: { id: user.id }, data: { password_reset_token: token, password_reset_expires: new Date(Date.now() + 60 * 60 * 1000) } });
+      await sendPasswordResetEmail(user.email, user.name, token);
+    }
+    return reply.send({ success: true, message: 'Se o e-mail existir, enviamos o link de redefinição.' });
+  });
+
+  app.post('/reset-password', {
+    preHandler: [authRateLimit],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const parsed = z.object({ token: z.string().min(20).max(80), password: z.string().min(8).max(100) }).safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ success: false, error: 'Token inválido ou senha muito curta (mínimo 8 caracteres)' });
+    const user = await prisma.user.findFirst({ where: { password_reset_token: parsed.data.token } });
+    if (!user || !user.password_reset_expires || user.password_reset_expires < new Date()) {
+      return reply.status(400).send({ success: false, error: 'Link expirado ou inválido. Peça um novo.' });
+    }
+    const password_hash = await bcrypt.hash(parsed.data.password, 10);
+    await prisma.user.update({ where: { id: user.id }, data: { password_hash, password_reset_token: null, password_reset_expires: null, updated_at: new Date() } });
+    return reply.send({ success: true, message: 'Senha redefinida. Faça login com a nova senha.' });
+  });
+
   app.post('/reset-password-temp', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { email, newPassword, secretKey } = request.body as {

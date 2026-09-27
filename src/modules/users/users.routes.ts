@@ -35,7 +35,7 @@ export async function usersRoutes(app: FastifyInstance) {
       return reply.status(404).send({ error: 'Usuário não encontrado' });
     }
 
-    const { password_hash, ...userData } = user;
+    const { password_hash, password_reset_token, password_reset_expires, ...userData } = user;
     return reply.send({ success: true, user: userData });
   });
 
@@ -44,7 +44,12 @@ export async function usersRoutes(app: FastifyInstance) {
     preHandler: [standardRateLimit, authenticate],
   }, async (request, reply) => {
     const decoded = request.user as { id: string; type: string };
-    const body = request.body as { name?: string; phone?: string; avatar?: string };
+    const body = request.body as { name?: string; phone?: string; avatar?: string; bank_code?: string; bank_agency?: string; bank_account?: string; bank_account_type?: string; pix_key?: string; pix_key_type?: string };
+    const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : undefined);
+    const pixType = str(body.pix_key_type, 20);
+    if (pixType !== undefined && pixType !== '' && !['cpf', 'cnpj', 'email', 'phone', 'random'].includes(pixType)) {
+      return reply.status(400).send({ success: false, error: 'Tipo de chave Pix inválido' });
+    }
 
     const user = await prisma.user.update({
       where: { id: decoded.id },
@@ -52,11 +57,17 @@ export async function usersRoutes(app: FastifyInstance) {
         ...(body.name && { name: body.name }),
         ...(body.phone && { phone: body.phone }),
         ...(body.avatar && { avatar: body.avatar }),
+        ...(str(body.bank_code, 10) !== undefined && { bank_code: str(body.bank_code, 10) || null }),
+        ...(str(body.bank_agency, 20) !== undefined && { bank_agency: str(body.bank_agency, 20) || null }),
+        ...(str(body.bank_account, 30) !== undefined && { bank_account: str(body.bank_account, 30) || null }),
+        ...(str(body.bank_account_type, 20) !== undefined && { bank_account_type: str(body.bank_account_type, 20) || null }),
+        ...(str(body.pix_key, 140) !== undefined && { pix_key: str(body.pix_key, 140) || null }),
+        ...(pixType !== undefined && { pix_key_type: pixType || null }),
         updated_at: new Date(),
       },
     });
 
-    const { password_hash, ...userData } = user;
+    const { password_hash, password_reset_token, password_reset_expires, ...userData } = user;
     return reply.send({ success: true, user: userData });
   });
 
@@ -158,7 +169,7 @@ export async function usersRoutes(app: FastifyInstance) {
       return reply.status(404).send({ error: 'Usuário não encontrado' });
     }
 
-    const { password_hash, ...userData } = user;
+    const { password_hash, password_reset_token, password_reset_expires, ...userData } = user;
 
     // Extrair dados do cliente do metadata
     const paymentsWithCustomer = recentPayments.map(payment => {

@@ -24,7 +24,7 @@ export class AuthService {
     }
 
     // Retorna dados do usuário (sem a senha)
-    const { password_hash, ...userData } = user;
+    const { password_hash, password_reset_token, password_reset_expires, ...userData } = user;
     return userData;
   }
 
@@ -112,7 +112,7 @@ export class AuthService {
       throw { statusCode: 404, message: 'Usuário não encontrado' };
     }
 
-    const { password_hash, ...userData } = user;
+    const { password_hash, password_reset_token, password_reset_expires, ...userData } = user;
     return userData;
   }
 
