@@ -161,6 +161,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
     for (const provider of candidates) {
       try {
         result = provider === 'payshark' ? await createPaySharkPixCharge({ ...pixArgs, ip: clientIp })
+          : provider === 'payshark_white' ? await createPaySharkPixCharge({ ...pixArgs, ip: clientIp, account: 'payshark_white' })
           : provider === 'xflow' ? await createXflowPixCharge(pixArgs)
           : provider === 'enki' ? await createEnkiPixCharge(pixArgs)
           : provider === 'eusouzucropay' ? await createEuSouZucroPayPixCharge(pixArgs)
@@ -628,6 +629,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
         };
         const chargeWith = async (provider: string) => {
           if (provider === 'payshark') return createPaySharkPixCharge({ ...pixArgs, ip: clientIp });
+          if (provider === 'payshark_white') return createPaySharkPixCharge({ ...pixArgs, ip: clientIp, account: 'payshark_white' });
           if (provider === 'xflow') return createXflowPixCharge(pixArgs);
           if (provider === 'enki') return createEnkiPixCharge(pixArgs);
           if (provider === 'eusouzucropay') return createEuSouZucroPayPixCharge(pixArgs);
@@ -697,6 +699,8 @@ export async function paymentsRoutes(app: FastifyInstance) {
             payment_provider: sellerProvider,
             ...(sellerProvider === 'payshark'
               ? { payshark_transaction_id: chargeResult.transactionId }
+              : sellerProvider === 'payshark_white'
+              ? { payshark_white_transaction_id: chargeResult.transactionId }
               : sellerProvider === 'xflow'
               ? { xflow_transaction_id: chargeResult.transactionId }
               : sellerProvider === 'enki'

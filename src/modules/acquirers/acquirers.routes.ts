@@ -11,6 +11,7 @@ import { authenticate, standardRateLimit } from '../../middlewares';
  */
 export const ACQUIRERS: { id: string; name: string }[] = [
   { id: 'payshark', name: 'Pay Shark' },
+  { id: 'payshark_white', name: 'Pay Shark White' },
   { id: 'xflow', name: 'XFlow' },
   { id: 'enki', name: 'Enki' },
   { id: 'eusouzucropay', name: 'EuSouZucroPay' },

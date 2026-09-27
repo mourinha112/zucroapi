@@ -1,8 +1,10 @@
 import QRCode from 'qrcode';
 import { env } from '../../config/env';
-import { paysharkRequest } from './payshark.client';
+import { paysharkRequest, paysharkEnv, PaySharkAccount } from './payshark.client';
 
 export interface PaySharkPixChargeData {
+  /** Conta Pay Shark a usar (default: 'payshark'). */
+  account?: PaySharkAccount;
   value: number; // em reais (ex: 49.90) — convertido internamente para centavos
   description: string;
   customerName: string;
@@ -46,7 +48,8 @@ export const createPaySharkPixCharge = async (
   data: PaySharkPixChargeData,
 ): Promise<PaySharkPixChargeResult> => {
   const amountInCents = Math.round(data.value * 100);
-  const notificationUrl = data.postbackUrl || env.PAYSHARK_WEBHOOK_URL || '';
+  const account: PaySharkAccount = data.account || 'payshark';
+  const notificationUrl = data.postbackUrl || paysharkEnv(account).webhookUrl || '';
   const payerPhone = normalizePayerPhone(data.customerPhone);
 
   if (!payerPhone) {
@@ -90,7 +93,7 @@ export const createPaySharkPixCharge = async (
 
   console.log('[PAYSHARK PIX] Criando cobrança:', JSON.stringify(payload));
 
-  const result = await paysharkRequest('POST', '/payment', payload, { auth: 'api' });
+  const result = await paysharkRequest('POST', '/payment', payload, { auth: 'api', account });
 
   if (!result.success) {
     console.error('[PAYSHARK PIX] Erro ao criar cobrança:', result.data);
@@ -154,8 +157,8 @@ export const mapPaySharkPaymentStatus = (status?: string): string => {
  * Consulta um pagamento.
  * Endpoint: GET /v1/payment/:id (token padrão)
  */
-export const getPaySharkTransaction = async (transactionId: string) => {
-  const result = await paysharkRequest('GET', `/payment/${transactionId}`, null, { auth: 'api' });
+export const getPaySharkTransaction = async (transactionId: string, account: PaySharkAccount = 'payshark') => {
+  const result = await paysharkRequest('GET', `/payment/${transactionId}`, null, { auth: 'api', account });
 
   if (!result.success) {
     return { success: false, error: result.data?.message || 'Erro ao consultar transação' };
@@ -179,6 +182,7 @@ export const getPaySharkTransaction = async (transactionId: string) => {
  * (COMPLETED/FAILED/REFUSED) chega pelo webhook em `${PAYSHARK_WEBHOOK_URL}/transfer`.
  */
 export const createPaySharkPixTransfer = async (data: {
+  account?: PaySharkAccount;
   value: number;
   pixKey: string;
   pixKeyType: string;
@@ -193,15 +197,17 @@ export const createPaySharkPixTransfer = async (data: {
   error?: string;
   debug?: any;
 }> => {
-  if (!env.PAYSHARK_WITHDRAW_KEY) {
+  const account: PaySharkAccount = data.account || 'payshark';
+  const accEnv = paysharkEnv(account);
+  if (!accEnv.withdrawKey) {
     return {
       success: false,
-      error: 'PAYSHARK_WITHDRAW_KEY não configurada — saque automático indisponível.',
+      error: (account === 'payshark_white' ? 'PAYSHARK_WHITE_WITHDRAW_KEY' : 'PAYSHARK_WITHDRAW_KEY') + ' não configurada — saque automático indisponível.',
     };
   }
 
   const amountInCents = Math.round(data.value * 100);
-  const transferWebhook = env.PAYSHARK_WEBHOOK_URL ? `${env.PAYSHARK_WEBHOOK_URL}/transfer` : '';
+  const transferWebhook = accEnv.webhookUrl ? `${accEnv.webhookUrl}/transfer` : '';
   const notificationUrl = data.postbackUrl || transferWebhook;
 
   // pixKeyType aceitos: CPF, CNPJ, EMAIL, PHONE, EVP, COPYPASTE
@@ -230,7 +236,7 @@ export const createPaySharkPixTransfer = async (data: {
 
   console.log('[PAYSHARK TRANSFER] Criando saque:', JSON.stringify(payload));
 
-  const result = await paysharkRequest('POST', '/transfer', payload, { auth: 'withdraw' });
+  const result = await paysharkRequest('POST', '/transfer', payload, { auth: 'withdraw', account });
 
   if (!result.success) {
     console.error('[PAYSHARK TRANSFER] Erro:', result.data);
@@ -271,8 +277,8 @@ export const createPaySharkPixTransfer = async (data: {
  * Consulta uma transferência.
  * Endpoint: GET /v1/transfer/:id (token de saque)
  */
-export const getPaySharkTransfer = async (transferId: string) => {
-  const result = await paysharkRequest('GET', `/transfer/${transferId}`, null, { auth: 'withdraw' });
+export const getPaySharkTransfer = async (transferId: string, account: PaySharkAccount = 'payshark') => {
+  const result = await paysharkRequest('GET', `/transfer/${transferId}`, null, { auth: 'withdraw', account });
   if (!result.success) {
     return { success: false, error: result.data?.message || 'Erro ao consultar transferência' };
   }
@@ -284,13 +290,13 @@ export const getPaySharkTransfer = async (transferId: string) => {
  * Endpoint: GET /v1/balance (token de saque). Valores em centavos.
  * Docs: https://app.gatewaypayshark.com.br/docs/store/balance
  */
-export const getPaySharkBalance = async (): Promise<{
+export const getPaySharkBalance = async (account: PaySharkAccount = 'payshark'): Promise<{
   available: number;
   reserved: number;
 } | null> => {
   try {
-    if (!env.PAYSHARK_WITHDRAW_KEY) return null;
-    const result = await paysharkRequest('GET', '/balance', null, { auth: 'withdraw' });
+    if (!paysharkEnv(account).withdrawKey) return null;
+    const result = await paysharkRequest('GET', '/balance', null, { auth: 'withdraw', account });
     if (!result.success || !result.data) return null;
 
     const data = result.data;

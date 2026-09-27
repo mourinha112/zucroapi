@@ -17,7 +17,7 @@ import { mapXflowStatus } from '../../providers/xflow/xflow.pix';
 import { mapUvviPayStatus } from '../../providers/uvvipay/uvvipay.pix';
 import { verifyUvviPaySignature } from '../../providers/uvvipay/uvvipay.client';
 import { mapPaySharkPaymentStatus } from '../../providers/payshark/payshark.pix';
-import { verifyPaySharkSignature } from '../../providers/payshark/payshark.client';
+import { verifyPaySharkSignature, paysharkEnv, PAYSHARK_ACCOUNTS } from '../../providers/payshark/payshark.client';
 import { env } from '../../config/env';
 
 function verifySharkSignature(rawBody: string | undefined, headerSignature: string | undefined, secret: string): 'ok' | 'skip' | 'invalid' {
@@ -1464,14 +1464,16 @@ export async function webhooksRoutes(app: FastifyInstance) {
       },
     );
 
-    const transferOpts = { label: 'Pay Shark', provider: 'payshark' };
+    for (const acc of PAYSHARK_ACCOUNTS) {
+    const accEnv = paysharkEnv(acc.account);
+    const transferOpts = { label: acc.label, provider: acc.account };
 
-    ps.get('/payshark', async (_request, reply) => {
-      console.log('[WEBHOOK] GET /payshark - validação');
+    ps.get(acc.path, async (_request, reply) => {
+      console.log(`[WEBHOOK] GET ${acc.path} - validação`);
       return reply.send({ success: true, message: 'Webhook Pay Shark ativo' });
     });
 
-    ps.post('/payshark/transfer', {
+    ps.post(acc.path + '/transfer', {
       preHandler: [webhookRateLimit],
     }, async (request, reply) => {
       const body = request.body as any;
@@ -1482,7 +1484,7 @@ export async function webhooksRoutes(app: FastifyInstance) {
       console.log('[WEBHOOK] Status:', body?.status, 'Id:', body?.id, 'ExternalRef:', body?.externalRef);
       console.log('[WEBHOOK] Body:', JSON.stringify(body, null, 2));
 
-      const sigResult = verifyPaySharkSignature(rawBody, signature, env.PAYSHARK_WEBHOOK_SECRET_TRANSFER);
+      const sigResult = verifyPaySharkSignature(rawBody, signature, accEnv.webhookSecretTransfer);
       if (sigResult === 'invalid') {
         console.log('[WEBHOOK] ⚠️ Pay Shark Transfer: assinatura HMAC inválida');
         return reply.status(401).send({ error: 'invalid signature' });
@@ -1492,7 +1494,7 @@ export async function webhooksRoutes(app: FastifyInstance) {
       return reply.send({ received: true });
     });
 
-    ps.post('/payshark', {
+    ps.post(acc.path, {
       preHandler: [webhookRateLimit],
     }, async (request, reply) => {
       const body = request.body as any;
@@ -1506,7 +1508,7 @@ export async function webhooksRoutes(app: FastifyInstance) {
       // Saque cadastrado com a URL base no painel cai aqui: delega.
       if (isSharkTransferPayload(body)) {
         console.log('[WEBHOOK] 🔁 /payshark detectou payload de transferência, delegando');
-        const sigResult = verifyPaySharkSignature(rawBody, signature, env.PAYSHARK_WEBHOOK_SECRET_TRANSFER);
+        const sigResult = verifyPaySharkSignature(rawBody, signature, accEnv.webhookSecretTransfer);
         if (sigResult === 'invalid') {
           console.log('[WEBHOOK] ⚠️ Pay Shark Transfer: assinatura HMAC inválida');
           return reply.status(401).send({ error: 'invalid signature' });
@@ -1515,12 +1517,12 @@ export async function webhooksRoutes(app: FastifyInstance) {
         return reply.send({ received: true });
       }
 
-      const sigResult = verifyPaySharkSignature(rawBody, signature, env.PAYSHARK_WEBHOOK_SECRET);
+      const sigResult = verifyPaySharkSignature(rawBody, signature, accEnv.webhookSecret);
       if (sigResult === 'invalid') {
         console.log('[WEBHOOK] ⚠️ Pay Shark: assinatura HMAC inválida');
         return reply.status(401).send({ error: 'invalid signature' });
       }
-      if (sigResult === 'skip' && env.PAYSHARK_WEBHOOK_SECRET && !signature) {
+      if (sigResult === 'skip' && accEnv.webhookSecret && !signature) {
         // Webhooks enviados para a notificationUrl da cobrança vêm sem X-Signature (documentado).
         console.log('[WEBHOOK] ℹ️ Pay Shark: sem X-Signature (notificationUrl), seguindo sem validar');
       }
@@ -1623,12 +1625,12 @@ export async function webhooksRoutes(app: FastifyInstance) {
             ? { pix_rate: customRates.pix_rate ? Number(customRates.pix_rate) : undefined }
             : null,
         );
-        const rates = applyProviderRateOverrides(baseRates, 'payshark', !!customRates?.pix_rate);
+        const rates = applyProviderRateOverrides(baseRates, acc.account, !!customRates?.pix_rate);
         const feeCalc = calculatePixFeeSellerPays(grossValue, rates);
 
         await creditPaymentOnReceive({
           payment,
-          providerLabel: 'payshark',
+          providerLabel: acc.account,
           feeCalc,
           rates,
           providerTransactionId: paysharkTransactionId,
@@ -1648,7 +1650,7 @@ export async function webhooksRoutes(app: FastifyInstance) {
             net_value: feeCalc.netValue,
             status: 'RECEIVED',
             billing_type: 'PIX',
-            provider: 'payshark',
+            provider: acc.account,
           });
         } catch (webhookError) {
           console.error('[WEBHOOK] Pay Shark erro postback:', webhookError);
@@ -1688,6 +1690,7 @@ export async function webhooksRoutes(app: FastifyInstance) {
       console.log('[WEBHOOK] ========================================');
       return reply.send({ received: true });
     });
+    }
   });
 
   // Listar webhooks do usuário (autenticado)

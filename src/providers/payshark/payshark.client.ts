@@ -19,11 +19,46 @@ interface PaySharkResponse {
  */
 type PaySharkAuthMode = 'api' | 'withdraw';
 
-const resolveToken = (mode: PaySharkAuthMode): string =>
-  mode === 'withdraw' ? env.PAYSHARK_WITHDRAW_KEY || '' : env.PAYSHARK_API_KEY || '';
+/**
+ * Contas na plataforma Pay Shark. Mesma API, credenciais diferentes:
+ *  - 'payshark'       → conta original (PAYSHARK_*)
+ *  - 'payshark_white' → Pay Shark White (PAYSHARK_WHITE_*)
+ */
+export type PaySharkAccount = 'payshark' | 'payshark_white';
+
+export const PAYSHARK_ACCOUNTS: { account: PaySharkAccount; label: string; path: string }[] = [
+  { account: 'payshark', label: 'Pay Shark', path: '/payshark' },
+  { account: 'payshark_white', label: 'Pay Shark White', path: '/payshark-white' },
+];
+
+export const isPaySharkAccount = (v: unknown): v is PaySharkAccount => v === 'payshark' || v === 'payshark_white';
+
+export const paysharkEnv = (account: PaySharkAccount = 'payshark') =>
+  account === 'payshark_white'
+    ? {
+        label: 'Pay Shark White',
+        apiKey: env.PAYSHARK_WHITE_API_KEY || '',
+        withdrawKey: env.PAYSHARK_WHITE_WITHDRAW_KEY || '',
+        webhookUrl: env.PAYSHARK_WHITE_WEBHOOK_URL || (env.PAYSHARK_WEBHOOK_URL ? env.PAYSHARK_WEBHOOK_URL.replace(/\/payshark\/?$/, '/payshark-white') : ''),
+        webhookSecret: env.PAYSHARK_WHITE_WEBHOOK_SECRET || '',
+        webhookSecretTransfer: env.PAYSHARK_WHITE_WEBHOOK_SECRET_TRANSFER || '',
+      }
+    : {
+        label: 'Pay Shark',
+        apiKey: env.PAYSHARK_API_KEY || '',
+        withdrawKey: env.PAYSHARK_WITHDRAW_KEY || '',
+        webhookUrl: env.PAYSHARK_WEBHOOK_URL || '',
+        webhookSecret: env.PAYSHARK_WEBHOOK_SECRET || '',
+        webhookSecretTransfer: env.PAYSHARK_WEBHOOK_SECRET_TRANSFER || '',
+      };
+
+const resolveToken = (mode: PaySharkAuthMode, account: PaySharkAccount): string => {
+  const e = paysharkEnv(account);
+  return mode === 'withdraw' ? e.withdrawKey : e.apiKey;
+};
 
 /** Credenciais presentes? Usado para expor `configured` no painel admin. */
-export const isPaySharkConfigured = (): boolean => !!env.PAYSHARK_API_KEY;
+export const isPaySharkConfigured = (account: PaySharkAccount = 'payshark'): boolean => !!paysharkEnv(account).apiKey;
 
 /**
  * Faz requisições para a API da Pay Shark.
@@ -34,13 +69,14 @@ export const paysharkRequest = async (
   method: string,
   endpoint: string,
   data: any = null,
-  options: { auth?: PaySharkAuthMode; extraHeaders?: Record<string, string> } = {},
+  options: { auth?: PaySharkAuthMode; extraHeaders?: Record<string, string>; account?: PaySharkAccount } = {},
 ): Promise<PaySharkResponse> => {
   const url = `${BASE_URL}${endpoint}`;
   const authMode: PaySharkAuthMode = options.auth || 'api';
+  const account: PaySharkAccount = options.account || 'payshark';
 
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${resolveToken(authMode)}`,
+    Authorization: `Bearer ${resolveToken(authMode, account)}`,
     'Content-Type': 'application/json',
     Accept: 'application/json',
     ...(options.extraHeaders || {}),
@@ -51,7 +87,7 @@ export const paysharkRequest = async (
     init.body = JSON.stringify(data);
   }
 
-  console.log(`[PAYSHARK] ${method} ${endpoint} (auth=${authMode})`);
+  console.log(`[PAYSHARK${account === 'payshark_white' ? ' WHITE' : ''}] ${method} ${endpoint} (auth=${authMode})`);
 
   try {
     const response = await fetch(url, init);

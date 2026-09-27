@@ -281,8 +281,9 @@ export async function adminRoutes(app: FastifyInstance) {
     preHandler: [standardRateLimit, authenticateAdmin],
   }, async (_request, reply) => {
     try {
-      const [payshark, shark, enki, eusouzucropay, xflow, uvvipay] = await Promise.all([
+      const [payshark, paysharkWhite, shark, enki, eusouzucropay, xflow, uvvipay] = await Promise.all([
         getPaySharkBalance(),
+        getPaySharkBalance('payshark_white'),
         getSharkBalance(),
         getEnkiBalance(),
         getEuSouZucroPayBalance(),
@@ -297,6 +298,13 @@ export async function adminRoutes(app: FastifyInstance) {
           name: 'Pay Shark',
           configured: !!env.PAYSHARK_API_KEY,
           balance: payshark,
+        },
+        {
+          // Segunda conta na mesma plataforma Pay Shark (credenciais PAYSHARK_WHITE_*).
+          id: 'payshark_white',
+          name: 'Pay Shark White',
+          configured: !!env.PAYSHARK_WHITE_API_KEY,
+          balance: paysharkWhite,
         },
         {
           id: 'sharkbanking',
@@ -735,9 +743,10 @@ export async function adminRoutes(app: FastifyInstance) {
 
         let pixResult: { success: boolean; error?: string; debug?: any; endToEndId?: string; transferId?: string; status?: string };
 
-        if (providerName === 'payshark') {
+        if (providerName === 'payshark' || providerName === 'payshark_white') {
           const { createPaySharkPixTransfer } = await import('../../providers/payshark/payshark.pix');
           pixResult = await createPaySharkPixTransfer({
+            account: providerName,
             value: Number(withdrawal.amount),
             pixKey: withdrawal.pix_key!,
             pixKeyType: withdrawal.pix_key_type || 'cpf',
@@ -980,12 +989,12 @@ export async function adminRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const currentUser = request.currentUser!;
     const { id } = request.params as { id: string };
-    const body = request.body as { provider: 'payshark' };
+    const body = request.body as { provider: 'payshark' | 'payshark_white' };
 
-    if (body.provider !== 'payshark') {
+    if (body.provider !== 'payshark' && body.provider !== 'payshark_white') {
       return reply.status(400).send({
         success: false,
-        error: 'Provedor inválido. Apenas "payshark" está disponível.',
+        error: 'Provedor inválido. Use "payshark" ou "payshark_white".',
       });
     }
 

@@ -248,6 +248,8 @@ export async function integrationsRoutes(app: FastifyInstance) {
 
         if (sellerProvider === 'payshark') {
           chargeRes = await createPaySharkPixCharge(chargePayload);
+        } else if (sellerProvider === 'payshark_white') {
+          chargeRes = await createPaySharkPixCharge({ ...chargePayload, account: 'payshark_white' });
         } else if (sellerProvider === 'xflow') {
           chargeRes = await createXflowPixCharge(chargePayload);
         } else if (sellerProvider === 'enki') {
@@ -282,6 +284,8 @@ export async function integrationsRoutes(app: FastifyInstance) {
               ...(payment.metadata as any),
               ...(sellerProvider === 'payshark'
                 ? { payshark_transaction_id: chargeRes.transactionId }
+                : sellerProvider === 'payshark_white'
+                ? { payshark_white_transaction_id: chargeRes.transactionId }
                 : sellerProvider === 'xflow'
                 ? { xflow_transaction_id: chargeRes.transactionId }
                 : sellerProvider === 'enki'

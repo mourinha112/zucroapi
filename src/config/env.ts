@@ -75,6 +75,12 @@ export const env = {
   // Segredos HMAC (X-Signature) — só chegam em webhooks cadastrados no PAINEL da Pay Shark.
   PAYSHARK_WEBHOOK_SECRET: process.env.PAYSHARK_WEBHOOK_SECRET || '',
   PAYSHARK_WEBHOOK_SECRET_TRANSFER: process.env.PAYSHARK_WEBHOOK_SECRET_TRANSFER || '',
+  // Pay Shark White: segunda conta na mesma plataforma (credenciais próprias, mesma API)
+  PAYSHARK_WHITE_API_KEY: process.env.PAYSHARK_WHITE_API_KEY || '',
+  PAYSHARK_WHITE_WITHDRAW_KEY: process.env.PAYSHARK_WHITE_WITHDRAW_KEY || '',
+  PAYSHARK_WHITE_WEBHOOK_URL: process.env.PAYSHARK_WHITE_WEBHOOK_URL || '',
+  PAYSHARK_WHITE_WEBHOOK_SECRET: process.env.PAYSHARK_WHITE_WEBHOOK_SECRET || '',
+  PAYSHARK_WHITE_WEBHOOK_SECRET_TRANSFER: process.env.PAYSHARK_WHITE_WEBHOOK_SECRET_TRANSFER || '',
 
   // Resend (Email)
   RESEND_API_KEY: process.env.RESEND_API_KEY || '',
